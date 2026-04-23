@@ -1,5 +1,10 @@
 # gmat-run
 
+[![CI](https://github.com/astro-tools/gmat-run/actions/workflows/ci.yml/badge.svg)](https://github.com/astro-tools/gmat-run/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/gmat-run.svg)](https://pypi.org/project/gmat-run/)
+[![Python versions](https://img.shields.io/pypi/pyversions/gmat-run.svg)](https://pypi.org/project/gmat-run/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Run GMAT mission scripts from Python and get results as pandas DataFrames.
 
 > **Status:** pre-alpha. Scaffolding only — no public API yet.
