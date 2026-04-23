@@ -68,7 +68,15 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $url = "https://sourceforge.net/projects/gmat/files/GMAT/GMAT-$env:GMAT_VERSION/gmat-win-$env:GMAT_VERSION.zip/download"
-          Invoke-WebRequest -Uri $url -OutFile gmat.zip -UseBasicParsing
+          # curl.exe ships with windows-latest runners; use it for parity with the Linux job
+          # and because Invoke-WebRequest does not reliably follow SourceForge's mirror redirects.
+          curl.exe -fL --retry 3 --retry-delay 5 -o gmat.zip $url
+          $size = (Get-Item gmat.zip).Length
+          Write-Host "Downloaded gmat.zip size: $size bytes"
+          if ($size -lt 100MB) {
+            Write-Error "Downloaded archive looks truncated ($size bytes); aborting"
+            exit 1
+          }
           $extractDir = Join-Path $env:RUNNER_TEMP 'gmat-extract'
           Expand-Archive -Path gmat.zip -DestinationPath $extractDir
           $apiScript = Get-ChildItem -Path $extractDir -Recurse -Filter BuildApiStartupFile.py | Select-Object -First 1
