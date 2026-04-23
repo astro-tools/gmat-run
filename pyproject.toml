@@ -1,0 +1,91 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gmat-run"
+version = "0.0.0"
+description = "Run GMAT mission scripts from Python and get results as pandas DataFrames."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Dimitrije Jankovic" }]
+keywords = ["gmat", "astrodynamics", "orbital-mechanics", "mission-analysis", "space"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: Astronomy",
+  "Topic :: Scientific/Engineering :: Physics",
+  "Typing :: Typed",
+]
+dependencies = [
+  "pandas>=2.0",
+  "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+astropy = ["astropy>=6.0"]
+
+[project.urls]
+Homepage = "https://github.com/astro-tools/gmat-run"
+Repository = "https://github.com/astro-tools/gmat-run"
+Issues = "https://github.com/astro-tools/gmat-run/issues"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "pandas-stubs",
+]
+docs = [
+  "mkdocs-material>=9.5",
+  "mkdocstrings[python]>=0.26",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gmat_run"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",   # pycodestyle
+  "F",        # pyflakes
+  "I",        # isort
+  "B",        # flake8-bugbear
+  "UP",       # pyupgrade
+  "SIM",      # flake8-simplify
+  "RUF",      # ruff-specific
+]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["src/gmat_run", "tests"]
+# gmatpy is a runtime-discovered module from the user's GMAT install; do not type-check it.
+[[tool.mypy.overrides]]
+module = ["gmatpy", "gmatpy.*", "load_gmat"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+  "integration: tests that require a working GMAT install (deselect with -m 'not integration')",
+]
