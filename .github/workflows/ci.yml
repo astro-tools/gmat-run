@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GMAT_VERSION: R2026a
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Restore GMAT cache
+        id: cache-gmat
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/gmat
+          key: gmat-${{ runner.os }}-${{ env.GMAT_VERSION }}-v1
+
+      - name: Download and extract GMAT (Linux)
+        if: runner.os == 'Linux' && steps.cache-gmat.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://sourceforge.net/projects/gmat/files/GMAT/GMAT-${GMAT_VERSION}/gmat-ubuntu-x64-${GMAT_VERSION}.tar.gz/download"
+          curl -fL --retry 3 --retry-delay 5 -o gmat.tar.gz "$url"
+          mkdir -p gmat-extract
+          tar -xzf gmat.tar.gz -C gmat-extract
+          api_script=$(find gmat-extract -name BuildApiStartupFile.py -print -quit)
+          if [ -z "$api_script" ]; then
+            echo "::error::Could not locate BuildApiStartupFile.py in extracted archive"
+            find gmat-extract -maxdepth 3 -type d
+            exit 1
+          fi
+          gmat_root=$(dirname "$(dirname "$api_script")")
+          mv "$gmat_root" "${RUNNER_TEMP}/gmat"
+          rm -rf gmat-extract gmat.tar.gz
+
+      - name: Download and extract GMAT (Windows)
+        if: runner.os == 'Windows' && steps.cache-gmat.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = "https://sourceforge.net/projects/gmat/files/GMAT/GMAT-$env:GMAT_VERSION/gmat-win-$env:GMAT_VERSION.zip/download"
+          Invoke-WebRequest -Uri $url -OutFile gmat.zip -UseBasicParsing
+          $extractDir = Join-Path $env:RUNNER_TEMP 'gmat-extract'
+          Expand-Archive -Path gmat.zip -DestinationPath $extractDir
+          $apiScript = Get-ChildItem -Path $extractDir -Recurse -Filter BuildApiStartupFile.py | Select-Object -First 1
+          if ($null -eq $apiScript) {
+            Write-Error "Could not locate BuildApiStartupFile.py in extracted archive"
+            Get-ChildItem -Path $extractDir -Recurse -Depth 2 -Directory | ForEach-Object { $_.FullName }
+            exit 1
+          }
+          $gmatRoot = Split-Path -Parent (Split-Path -Parent $apiScript.FullName)
+          Move-Item -Path $gmatRoot -Destination (Join-Path $env:RUNNER_TEMP 'gmat')
+          Remove-Item gmat.zip
+          Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+
+      - name: Resolve GMAT_ROOT
+        shell: bash
+        run: |
+          set -euo pipefail
+          gmat_root="${RUNNER_TEMP}/gmat"
+          if [ ! -f "${gmat_root}/api/BuildApiStartupFile.py" ]; then
+            echo "::error::GMAT install incomplete at ${gmat_root}"
+            ls -la "${gmat_root}" || true
+            exit 1
+          fi
+          echo "GMAT_ROOT=${gmat_root}" >> "$GITHUB_ENV"
+
+      - name: Generate api_startup_file.txt
+        shell: bash
+        run: python "${GMAT_ROOT}/api/BuildApiStartupFile.py"
+
+      - name: Install project
+        run: uv sync --all-groups
+
+      - name: Run pytest
+        run: uv run pytest
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --all-groups
+      - run: uv run ruff check
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --all-groups
+      - run: uv run mypy
