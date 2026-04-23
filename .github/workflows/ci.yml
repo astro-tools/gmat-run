@@ -49,7 +49,10 @@ jobs:
         run: |
           set -euo pipefail
           url="https://sourceforge.net/projects/gmat/files/GMAT/GMAT-${GMAT_VERSION}/gmat-ubuntu-x64-${GMAT_VERSION}.tar.gz/download"
-          curl -fL --retry 3 --retry-delay 5 -o gmat.tar.gz "$url"
+          # --retry-all-errors covers mid-stream connection drops from slow SourceForge mirrors
+          # (plain --retry only retries on initial connection failures).
+          curl -fL --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 \
+            -o gmat.tar.gz "$url"
           mkdir -p gmat-extract
           tar -xzf gmat.tar.gz -C gmat-extract
           api_script=$(find gmat-extract -name BuildApiStartupFile.py -print -quit)
@@ -70,10 +73,19 @@ jobs:
           $url = "https://sourceforge.net/projects/gmat/files/GMAT/GMAT-$env:GMAT_VERSION/gmat-win-$env:GMAT_VERSION.zip/download"
           # curl.exe ships with windows-latest runners; use it for parity with the Linux job
           # and because Invoke-WebRequest does not reliably follow SourceForge's mirror redirects.
-          curl.exe -fL --retry 3 --retry-delay 5 -o gmat.zip $url
+          # --retry-all-errors covers mid-stream connection drops on slow SourceForge mirrors;
+          # plain --retry only retries on initial connection failures, not partial downloads.
+          curl.exe -fL --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 `
+            -o gmat.zip $url
+          # PowerShell does not auto-check native exit codes; check explicitly.
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "curl exited with code $LASTEXITCODE"
+            exit 1
+          }
           $size = (Get-Item gmat.zip).Length
           Write-Host "Downloaded gmat.zip size: $size bytes"
-          if ($size -lt 100MB) {
+          # The R2026a Windows zip is ~403 MB; threshold is conservatively 380 MB.
+          if ($size -lt 380MB) {
             Write-Error "Downloaded archive looks truncated ($size bytes); aborting"
             exit 1
           }
