@@ -89,11 +89,15 @@ def test_utf8_bom_is_stripped(tmp_path: Path) -> None:
     assert next(iter(df.columns)) == "Sat.UTCGregorian"
 
 
-@pytest.mark.parametrize("newline", ["\n", "\r\n"])
-def test_line_endings_produce_identical_frame(tmp_path: Path, newline: str) -> None:
-    path = _write(tmp_path / f"ln_{newline!r}.report", _BASIC, newline=newline)
+@pytest.mark.parametrize(
+    ("newline", "label"), [("\n", "lf"), ("\r\n", "crlf")], ids=["lf", "crlf"]
+)
+def test_line_endings_produce_identical_frame(
+    tmp_path: Path, newline: str, label: str
+) -> None:
+    path = _write(tmp_path / f"{label}.report", _BASIC, newline=newline)
     df = parse(path)
-    reference = parse(_write(tmp_path / "lf.report", _BASIC, newline="\n"))
+    reference = parse(_write(tmp_path / "reference.report", _BASIC, newline="\n"))
     pd.testing.assert_frame_equal(df, reference)
 
 
