@@ -51,12 +51,26 @@ def test_row_count_matches_data_lines(tmp_path: Path) -> None:
     assert len(df) == 2
 
 
-def test_gregorian_epoch_stays_string(tmp_path: Path) -> None:
-    """UTCGregorian is non-numeric and must survive as strings at this layer."""
+def test_gregorian_epoch_becomes_datetime64(tmp_path: Path) -> None:
+    """UTCGregorian is promoted end-to-end to datetime64[ns] and tagged UTC."""
     df = parse(_write(tmp_path / "basic.report", _BASIC))
-    assert not pd.api.types.is_numeric_dtype(df["Sat.UTCGregorian"])
-    assert df["Sat.UTCGregorian"].iloc[0] == "26 Nov 2026 12:00:00.000"
-    assert df["Sat.UTCGregorian"].iloc[1] == "26 Nov 2026 12:01:00.000"
+    assert df["Sat.UTCGregorian"].dtype == np.dtype("datetime64[ns]")
+    assert df["Sat.UTCGregorian"].iloc[0] == pd.Timestamp("2026-11-26 12:00:00")
+    assert df["Sat.UTCGregorian"].iloc[1] == pd.Timestamp("2026-11-26 12:01:00")
+    assert df.attrs["epoch_scales"]["Sat.UTCGregorian"] == "UTC"
+
+
+def test_modjulian_column_parses_end_to_end(tmp_path: Path) -> None:
+    """TAIModJulian column comes out as datetime64[ns] with the TAI scale tag."""
+    content = (
+        "Sat.TAIModJulian          Sat.Earth.SMA\n"
+        "21545.0                   6578.136\n"
+        "21545.5                   6578.137\n"
+    )
+    df = parse(_write(tmp_path / "mjd.report", content))
+    assert df["Sat.TAIModJulian"].dtype == np.dtype("datetime64[ns]")
+    assert df["Sat.TAIModJulian"].iloc[0] == pd.Timestamp("2000-01-01 12:00:00")
+    assert df.attrs["epoch_scales"]["Sat.TAIModJulian"] == "TAI"
 
 
 def test_float_column_is_float64(tmp_path: Path) -> None:
