@@ -8,6 +8,17 @@ class GmatRunError(Exception):
     """Base class for all gmat-run errors."""
 
 
+class GmatLoadError(GmatRunError):
+    """Raised when gmatpy cannot be loaded for a resolved GMAT install.
+
+    Covers unsupported Python versions (gmatpy ships per-Python-minor shared
+    libraries), missing shared libraries, failed generation of the API startup
+    file, and attempts to bootstrap a second install in one interpreter. The
+    triggering ``ImportError`` or ``CalledProcessError`` is chained via
+    ``__cause__``.
+    """
+
+
 class GmatNotFoundError(GmatRunError):
     """Raised when no usable GMAT install can be located.
 
