@@ -2,12 +2,16 @@
 
 Unlike :mod:`tests.test_parsers_reportfile` — which builds inputs inline via
 ``tmp_path`` to exercise edge cases at full control — these tests parse real
-``ReportFile`` output captured from stock GMAT ``Ex_*.script`` samples and
-pin the exact structure of the resulting DataFrames. A format drift in a
+``ReportFile`` output captured from stock GMAT R2026a ``Ex_*.script`` samples
+and pin the exact structure of the resulting DataFrames. A format drift in a
 future GMAT release (new column on a stock resource, padding change, epoch
 format change, new segment boundary) fails these tests loudly.
 
-Fixture provenance is documented in ``tests/fixtures/reportfile/README.md``.
+Each fixture's source script is named in its test class's docstring.
+Regenerate after a GMAT upgrade by running each source script via
+``GmatConsole --run`` and copying the resulting output file into
+``tests/fixtures/reportfile/`` under the name this module expects.
+
 Tests run without any GMAT install — parsing is pure pandas.
 """
 
