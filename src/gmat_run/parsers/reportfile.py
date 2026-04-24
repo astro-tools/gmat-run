@@ -26,6 +26,7 @@ from typing import Any
 import pandas as pd
 
 from gmat_run.errors import GmatOutputParseError
+from gmat_run.parsers.epoch import promote_epochs
 
 __all__ = ["parse"]
 
@@ -81,7 +82,7 @@ def parse(path: str | os.PathLike[str]) -> pd.DataFrame:
     df = pd.DataFrame(rows, columns=column_names)
     for column in df.columns:
         df[column] = _coerce_numeric(df[column])
-    return df
+    return promote_epochs(df)
 
 
 def _find_header(lines: list[str], path: Path) -> tuple[int, str]:
