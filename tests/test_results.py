@@ -5,6 +5,7 @@ The lazy-materialisation contract is exercised by pointing the constructor at
 how often) the parser actually reads them.
 """
 
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -251,3 +252,165 @@ def test_iteration_preserves_insertion_order(tmp_path: Path) -> None:
     }
     result = Results(output_dir=tmp_path, log="", report_paths=paths)
     assert list(result.reports) == ["ReportC", "ReportA", "ReportB"]
+
+
+# --- persist ----------------------------------------------------------------
+
+
+def _result_with_workspace(
+    tmp_path: Path,
+    *,
+    rel_report: str = "r1.txt",
+    rel_eph: str = "e1.eph",
+    rel_con: str = "c1.txt",
+) -> tuple[Results, Path]:
+    """A Results pointing at a populated workspace dir, no temp-dir handle.
+
+    Returns ``(result, workspace_dir)``. The workspace contains a parseable
+    report, an ephemeris file, a contact file, and a log — same layout
+    ``Mission.run`` produces.
+    """
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _write_report(workspace / rel_report)
+    (workspace / rel_eph).write_text("eph data\n", encoding="utf-8")
+    (workspace / rel_con).write_text("contact data\n", encoding="utf-8")
+    (workspace / "GmatLog.txt").write_text("log\n", encoding="utf-8")
+    result = Results(
+        output_dir=workspace,
+        log="log\n",
+        report_paths={"R1": workspace / rel_report},
+        ephemeris_paths={"E1": workspace / rel_eph},
+        contact_paths={"C1": workspace / rel_con},
+    )
+    return result, workspace
+
+
+class TestPersist:
+    def test_copies_artefacts_into_dest(self, tmp_path: Path) -> None:
+        result, _ = _result_with_workspace(tmp_path)
+        dest = tmp_path / "persisted"
+
+        result.persist(dest)
+
+        assert (dest / "r1.txt").exists()
+        assert (dest / "e1.eph").read_text(encoding="utf-8") == "eph data\n"
+        assert (dest / "c1.txt").read_text(encoding="utf-8") == "contact data\n"
+        assert (dest / "GmatLog.txt").read_text(encoding="utf-8") == "log\n"
+
+    def test_updates_output_dir_and_path_mappings(self, tmp_path: Path) -> None:
+        result, _ = _result_with_workspace(tmp_path)
+        dest = tmp_path / "persisted"
+
+        result.persist(dest)
+
+        assert result.output_dir == dest
+        assert result.ephemeris_paths["E1"] == dest / "e1.eph"
+        assert result.contact_paths["C1"] == dest / "c1.txt"
+        # Reports' underlying path mapping is rebased too.
+        assert result.reports._paths["R1"] == dest / "r1.txt"  # type: ignore[attr-defined]
+
+    def test_returns_self_for_chaining(self, tmp_path: Path) -> None:
+        result, _ = _result_with_workspace(tmp_path)
+        assert result.persist(tmp_path / "dest") is result
+
+    def test_lazy_report_reads_from_persisted_path(self, tmp_path: Path) -> None:
+        result, workspace = _result_with_workspace(tmp_path)
+        dest = tmp_path / "persisted"
+
+        result.persist(dest)
+        # Wipe the original to confirm the lazy parse hits the new location.
+        for f in workspace.iterdir():
+            f.unlink()
+        df = result.reports["R1"]
+        assert list(df.columns) == ["Sat.UTCGregorian", "Sat.Earth.SMA"]
+
+    def test_preserves_already_cached_dataframes(self, tmp_path: Path) -> None:
+        result, _ = _result_with_workspace(tmp_path)
+        df_before = result.reports["R1"]
+
+        result.persist(tmp_path / "persisted")
+
+        df_after = result.reports["R1"]
+        assert df_after is df_before
+
+    def test_releases_temp_workspace(self, tmp_path: Path) -> None:
+        # Stand up a real TemporaryDirectory so persist exercises the cleanup
+        # path, mirroring what Mission.run() builds for the default case.
+        tmpdir = tempfile.TemporaryDirectory(prefix="gmat-run-test-")
+        workspace = Path(tmpdir.name)
+        _write_report(workspace / "r1.txt")
+        result = Results(
+            output_dir=workspace,
+            log="",
+            report_paths={"R1": workspace / "r1.txt"},
+        )
+        result._workspace = tmpdir
+
+        result.persist(tmp_path / "persisted")
+
+        assert result._workspace is None
+        assert not workspace.is_dir()
+
+    def test_explicit_working_dir_is_not_deleted(self, tmp_path: Path) -> None:
+        # _workspace stays None when the run had a user-supplied working_dir.
+        # persist must not touch that directory.
+        result, workspace = _result_with_workspace(tmp_path)
+        assert result._workspace is None
+
+        result.persist(tmp_path / "persisted")
+
+        assert workspace.is_dir()
+        assert (workspace / "r1.txt").exists()
+
+    def test_absolute_paths_outside_workspace_are_not_migrated(
+        self, tmp_path: Path
+    ) -> None:
+        # A ReportFile.Filename like "/abs/elsewhere/report.txt" lands outside
+        # the workspace and was not rewritten by Mission.run. persist must
+        # leave that path intact rather than silently relocating it.
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        external = tmp_path / "elsewhere" / "report.txt"
+        external.parent.mkdir()
+        external.write_text(_REPORT, encoding="utf-8")
+        result = Results(
+            output_dir=workspace,
+            log="",
+            report_paths={"Inside": _write_report(workspace / "in.txt")},
+            ephemeris_paths={"Outside": external},
+        )
+
+        result.persist(tmp_path / "persisted")
+
+        assert result.ephemeris_paths["Outside"] == external
+        assert result.reports._paths["Inside"] == tmp_path / "persisted" / "in.txt"  # type: ignore[attr-defined]
+
+    def test_idempotent_when_dest_equals_output_dir(self, tmp_path: Path) -> None:
+        result, workspace = _result_with_workspace(tmp_path)
+        result.persist(workspace)
+        # Path mappings are unchanged.
+        assert result.output_dir == workspace
+        assert result.reports._paths["R1"] == workspace / "r1.txt"  # type: ignore[attr-defined]
+
+    def test_creates_missing_destination(self, tmp_path: Path) -> None:
+        result, _ = _result_with_workspace(tmp_path)
+        dest = tmp_path / "nested" / "deep" / "persisted"
+        assert not dest.exists()
+
+        result.persist(dest)
+
+        assert dest.is_dir()
+        assert (dest / "r1.txt").exists()
+
+    def test_can_persist_twice(self, tmp_path: Path) -> None:
+        result, _ = _result_with_workspace(tmp_path)
+        first = tmp_path / "first"
+        second = tmp_path / "second"
+
+        result.persist(first)
+        result.persist(second)
+
+        assert result.output_dir == second
+        assert (second / "r1.txt").exists()
+        assert result.reports._paths["R1"] == second / "r1.txt"  # type: ignore[attr-defined]

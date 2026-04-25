@@ -12,6 +12,11 @@ the life of the :class:`Results` instance — opening a notebook on a long run
 without touching every report should not pay the parse cost for the ones it
 does not look at.
 
+When :meth:`Mission.run` was called without a ``working_dir``, the artefacts
+live under a :class:`tempfile.TemporaryDirectory` that is cleaned up when this
+:class:`Results` is garbage-collected. Call :meth:`Results.persist` to copy
+the artefacts to a permanent location before the temp dir disappears.
+
 The ``.eph`` ephemeris and ``ContactLocator`` parsers are scheduled for v0.2.
 For v0.1 the corresponding mappings still expose their keys (so callers can
 discover what GMAT wrote without branching on the version), but accessing a
@@ -22,6 +27,8 @@ hand back the raw :class:`pathlib.Path`.
 
 from __future__ import annotations
 
+import os
+import shutil
 import tempfile
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -67,6 +74,12 @@ class _LazyReports(Mapping[str, pd.DataFrame]):
         # Override the Mapping default — it calls __getitem__ and would parse.
         return key in self._paths
 
+    def _rebase(self, paths: Mapping[str, Path]) -> None:
+        # Replace the underlying path mapping in place. Already-cached
+        # DataFrames are kept — they're independent of the on-disk files once
+        # parsed.
+        self._paths = dict(paths)
+
 
 class _DeferredMapping(Mapping[str, pd.DataFrame]):
     """Mapping view whose keys are populated but value access is unimplemented.
@@ -109,6 +122,9 @@ class _DeferredMapping(Mapping[str, pd.DataFrame]):
         # Override the Mapping default — it calls __getitem__ and would raise
         # NotImplementedError for known keys.
         return key in self._paths
+
+    def _rebase(self, paths: Mapping[str, Path]) -> None:
+        self._paths = dict(paths)
 
 
 class Results:
@@ -179,3 +195,62 @@ class Results:
             target_release="v0.2",
             paths_attr="contact_paths",
         )
+
+    def persist(self, path: str | os.PathLike[str]) -> Results:
+        """Copy every output artefact under :attr:`output_dir` into ``path``.
+
+        Mutates the :class:`Results` in place so future report/ephemeris/contact
+        access reads from the persisted location instead of the (potentially
+        soon-to-be-cleaned) workspace. The :class:`tempfile.TemporaryDirectory`
+        backing a default-workspace run is released as part of the call. Run
+        with an explicit ``working_dir``: that directory is left intact —
+        ``persist`` is a copy, never a move.
+
+        Path mappings are rewritten so any path that lived under the old
+        ``output_dir`` now points at the matching file under ``path``.
+        Absolute filenames the user pinned outside the workspace via
+        ``ReportFile.Filename = "/abs/elsewhere.txt"`` are kept as-is — the
+        user chose that destination and we honour it. Already-parsed
+        DataFrames stay cached; they are independent of the on-disk files.
+
+        Calling ``persist`` again later moves the artefacts to the new
+        destination. A no-op fast path applies when the destination already
+        equals the current ``output_dir``.
+
+        Args:
+            path: Directory to copy artefacts into. Created if missing.
+
+        Returns:
+            ``self``, so the call composes with ``Mission.run().persist(...)``.
+        """
+        dest = Path(path).expanduser()
+        if self.output_dir.exists() and dest.resolve() == self.output_dir.resolve():
+            return self
+        dest.mkdir(parents=True, exist_ok=True)
+        if self.output_dir.exists() and self.output_dir.is_dir():
+            shutil.copytree(self.output_dir, dest, dirs_exist_ok=True)
+
+        old_dir = self.output_dir
+
+        def _migrate(p: Path) -> Path:
+            try:
+                rel = p.relative_to(old_dir)
+            except ValueError:
+                return p
+            return dest / rel
+
+        new_reports = {n: _migrate(p) for n, p in self.reports._paths.items()}  # type: ignore[attr-defined]
+        new_eph = {n: _migrate(p) for n, p in self.ephemeris_paths.items()}
+        new_con = {n: _migrate(p) for n, p in self.contact_paths.items()}
+
+        self.reports._rebase(new_reports)  # type: ignore[attr-defined]
+        self.ephemerides._rebase(new_eph)  # type: ignore[attr-defined]
+        self.contacts._rebase(new_con)  # type: ignore[attr-defined]
+        self.ephemeris_paths = MappingProxyType(new_eph)
+        self.contact_paths = MappingProxyType(new_con)
+
+        self.output_dir = dest
+        if self._workspace is not None:
+            self._workspace.cleanup()
+            self._workspace = None
+        return self

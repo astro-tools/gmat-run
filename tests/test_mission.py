@@ -11,6 +11,7 @@ without needing a real GMAT install.
 
 from __future__ import annotations
 
+import gc
 from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
@@ -833,6 +834,60 @@ class TestMissionRun:
         assert len(result.contact_paths) == 0
         # Log was still captured.
         assert result.log == "fake gmat log\n"
+
+    def test_run_does_not_pollute_cwd(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Stand the harness up under a fresh CWD with a relative-Filename
+        # subscriber. A naïve run would land "rel.txt" right next to where
+        # the user is sitting; the rewrite must redirect it into the
+        # workspace, leaving CWD untouched.
+        cwd = tmp_path / "cwd"
+        cwd.mkdir()
+        monkeypatch.chdir(cwd)
+        before = set(cwd.iterdir())
+
+        rf = _report_file("RF", "rel.txt")
+        mission, _ = _run_mission(tmp_path / "gmat", objects={"RF": rf})
+        result = mission.run()
+
+        after = set(cwd.iterdir())
+        assert after == before, f"new files in CWD: {after - before}"
+        # The captured path is absolute and lives inside the workspace, not
+        # CWD — the only way no-pollution is actually upheld.
+        report_path = result.reports._paths["RF"]  # type: ignore[attr-defined]
+        assert report_path.is_absolute()
+        assert report_path.parent == result.output_dir
+
+    def test_run_default_temp_dir_cleaned_up_when_results_dropped(
+        self, tmp_path: Path
+    ) -> None:
+        # The TemporaryDirectory parked on Results runs its finaliser when GC
+        # collects the instance, so the workspace disappears with the result.
+        mission, _ = _run_mission(tmp_path / "gmat")
+        result = mission.run()
+        workspace = result.output_dir
+        assert workspace.is_dir()
+
+        del result
+        gc.collect()
+
+        assert not workspace.is_dir()
+
+    def test_run_explicit_working_dir_survives_results_drop(
+        self, tmp_path: Path
+    ) -> None:
+        # The opt-in path: when the caller pinned working_dir, the directory
+        # is theirs and gmat-run leaves it alone on Results cleanup.
+        custom = tmp_path / "user-output"
+        mission, _ = _run_mission(tmp_path / "gmat")
+        result = mission.run(working_dir=custom)
+        assert custom.is_dir()
+
+        del result
+        gc.collect()
+
+        assert custom.is_dir()
 
     def test_run_unknown_engine_exception_still_wrapped(self, tmp_path: Path) -> None:
         # If a non-APIException leaks out of RunScript (programmer bug, plugin
