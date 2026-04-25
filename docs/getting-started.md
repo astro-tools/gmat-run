@@ -21,16 +21,8 @@ breakage as an issue and we'll add a CI cell for it.
 
 ## Install gmat-run
 
-Once v0.1.0 ships:
-
 ```bash
 pip install gmat-run
-```
-
-Until then, install from the repository:
-
-```bash
-pip install git+https://github.com/astro-tools/gmat-run.git
 ```
 
 ## Quick start

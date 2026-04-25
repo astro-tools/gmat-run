@@ -42,12 +42,8 @@ an issue and we'll add a CI cell for it.
 
 ## Installation
 
-Not yet on PyPI. To work on gmat-run itself:
-
 ```bash
-git clone https://github.com/astro-tools/gmat-run.git
-cd gmat-run
-uv sync --all-groups
+pip install gmat-run
 ```
 
 ## Quick start
@@ -77,6 +73,18 @@ Full docs at **<https://astro-tools.github.io/gmat-run/>**, including a
 [getting-started guide](https://astro-tools.github.io/gmat-run/getting-started/),
 [GMAT install instructions](https://astro-tools.github.io/gmat-run/install-gmat/),
 and the [API reference](https://astro-tools.github.io/gmat-run/reference/).
+
+## Development
+
+To work on gmat-run itself:
+
+```bash
+git clone https://github.com/astro-tools/gmat-run.git
+cd gmat-run
+uv sync --all-groups
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full branch / PR / test workflow.
 
 ## Licence
 
