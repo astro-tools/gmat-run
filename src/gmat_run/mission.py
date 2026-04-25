@@ -159,6 +159,18 @@ class Mission:
         builds a :class:`Results` populated with the resolved output paths and
         the captured log.
 
+        **Filename rewrite.** A relative ``Filename`` on an output subscriber
+        is rewritten to an absolute path inside ``working_dir`` before the
+        run, so a stock script's outputs land in the per-run workspace
+        instead of the GMAT install's default output directory (the charter's
+        "no pollution of the user's cwd" rule). Absolute filenames in the
+        script are left alone — the user has a specific destination in mind
+        and the run honours it. The rewrite is the only mechanism GMAT
+        actually consults at write time; ``FileManager.OUTPUT_PATH`` is
+        cached per-subscriber at Initialize time and ignored thereafter.
+        After :meth:`run` returns, reading ``mission["RF.Filename"]`` yields
+        the resolved absolute path, which points at the file on disk.
+
         Args:
             working_dir: Directory GMAT writes its outputs into. ``None``
                 creates a fresh :class:`tempfile.TemporaryDirectory` whose
