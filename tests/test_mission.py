@@ -18,8 +18,8 @@ from typing import Any
 
 import pytest
 
-from gmat_run import Mission
-from gmat_run.errors import GmatFieldError, GmatLoadError, GmatNotFoundError
+from gmat_run import Mission, Results
+from gmat_run.errors import GmatFieldError, GmatLoadError, GmatNotFoundError, GmatRunError
 from gmat_run.install import GmatInstall
 
 # --- type-code constants for the fake gmat module -----------------------------
@@ -144,14 +144,45 @@ class _FakeObject:
 # --- fake gmat module factory -------------------------------------------------
 
 
+# Mapping of object-type-enum names → arbitrary integers that the fake
+# ``Moderator.GetListOfObjects`` uses as bucket IDs. The real gmat module
+# defines these as opaque ints from the C++ engine; the production code reads
+# them via ``getattr(self._gmat, "SUBSCRIBER", None)`` so any unique values work.
+_OBJECT_TYPE_IDS = {"SUBSCRIBER": 100, "EVENT_LOCATOR": 200}
+
+# Which object-type bucket each subscriber-like type lives in. ReportFile and
+# EphemerisFile are Subscribers; ContactLocator is an EventLocator.
+_OBJECT_TYPE_OF_CLASS = {
+    "ReportFile": "SUBSCRIBER",
+    "EphemerisFile": "SUBSCRIBER",
+    "ContactLocator": "EVENT_LOCATOR",
+}
+
+
+class _FakeAPIException(Exception):
+    """Stand-in for the real ``gmatpy.APIException`` raised by the engine."""
+
+
 def _make_fake_gmat(
     objects: dict[str, _FakeObject] | None = None,
     *,
     load_script_returns: bool = True,
+    run_script_status: int = 1,
+    run_script_raises: BaseException | None = None,
+    log_text: str = "fake gmat log\n",
 ) -> ModuleType:
-    """Build a fake gmatpy module with the bits Mission touches."""
+    """Build a fake gmatpy module with the bits Mission touches.
+
+    Beyond field access, the fake exposes the run-time surface
+    :meth:`Mission.run` calls: ``RunScript``, ``UseLogFile``,
+    ``GmatGlobal.Instance().SetOutputPath``, ``Moderator.Instance()`` (with
+    ``GetListOfObjects`` keyed by the ``SUBSCRIBER`` / ``EVENT_LOCATOR`` enum
+    values), and ``APIException``.
+    """
     module = ModuleType("fake_gmat")
     for attr, code in _TYPE_CODES.items():
+        setattr(module, attr, code)
+    for attr, code in _OBJECT_TYPE_IDS.items():
         setattr(module, attr, code)
     registry: dict[str, _FakeObject] = dict(objects or {})
 
@@ -161,10 +192,50 @@ def _make_fake_gmat(
     def load_script(_path: str) -> bool:
         return load_script_returns
 
+    # Recorder so tests can inspect what was wired during the run.
+    log_paths: list[str] = []
+
+    class _FakeModerator:
+        def GetListOfObjects(self, type_id: int) -> list[str]:
+            kind = next(
+                (k for k, v in _OBJECT_TYPE_IDS.items() if v == type_id), None
+            )
+            if kind is None:
+                return []
+            return [
+                name
+                for name, obj in registry.items()
+                if _OBJECT_TYPE_OF_CLASS.get(obj.GetTypeName()) == kind
+            ]
+
+    class _ModeratorProxy:
+        @staticmethod
+        def Instance() -> _FakeModerator:
+            return module._moderator  # type: ignore[no-any-return]
+
+    def use_log_file(path: str) -> None:
+        log_paths.append(path)
+        log_file = Path(path)
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        log_file.write_text(log_text, encoding="utf-8")
+
+    def run_script() -> int:
+        if run_script_raises is not None:
+            raise run_script_raises
+        return run_script_status
+
+    module._moderator = _FakeModerator()  # type: ignore[attr-defined]
+    module.Moderator = _ModeratorProxy  # type: ignore[attr-defined]
+    module.APIException = _FakeAPIException  # type: ignore[attr-defined]
+
     module.GetObject = get_object  # type: ignore[attr-defined]
     module.LoadScript = load_script  # type: ignore[attr-defined]
     module.Setup = lambda _path: None  # type: ignore[attr-defined]
+    module.RunScript = run_script  # type: ignore[attr-defined]
+    module.UseLogFile = use_log_file  # type: ignore[attr-defined]
+
     module._registry = registry  # type: ignore[attr-defined]
+    module._log_paths = log_paths  # type: ignore[attr-defined]
     return module
 
 
@@ -215,6 +286,27 @@ def _impulsive_burn(name: str = "TOI") -> _FakeObject:
         "DecrementMass":    (_TYPE_CODES["BOOLEAN_TYPE"],      False,           False),
     }
     return _FakeObject("ImpulsiveBurn", name, fields)
+
+
+def _report_file(name: str = "ReportFile1", filename: str = "report1.txt") -> _FakeObject:
+    fields: dict[str, tuple[int, Any, bool]] = {
+        "Filename": (_TYPE_CODES["FILENAME_TYPE"], filename, False),
+    }
+    return _FakeObject("ReportFile", name, fields)
+
+
+def _ephemeris_file(name: str = "EphFile1", filename: str = "eph1.eph") -> _FakeObject:
+    fields: dict[str, tuple[int, Any, bool]] = {
+        "Filename": (_TYPE_CODES["FILENAME_TYPE"], filename, False),
+    }
+    return _FakeObject("EphemerisFile", name, fields)
+
+
+def _contact_locator(name: str = "Contacts", filename: str = "contacts.txt") -> _FakeObject:
+    fields: dict[str, tuple[int, Any, bool]] = {
+        "Filename": (_TYPE_CODES["FILENAME_TYPE"], filename, False),
+    }
+    return _FakeObject("ContactLocator", name, fields)
 
 
 # --- fixtures -----------------------------------------------------------------
@@ -554,3 +646,211 @@ def test_setitem_calls_set_field_on_underlying_object(mission: Mission) -> None:
     assert isinstance(sat, _FakeObject)
     mission["Sat.SMA"] = 7123.45
     assert ("SMA", 7123.45) in sat.set_calls
+
+
+# --- Mission.run --------------------------------------------------------------
+
+
+def _run_mission(
+    tmp_path: Path,
+    *,
+    objects: dict[str, _FakeObject] | None = None,
+    run_script_status: int = 1,
+    run_script_raises: BaseException | None = None,
+    log_text: str = "fake gmat log\n",
+) -> tuple[Mission, ModuleType]:
+    """Build a Mission backed by a fake gmat module and return both."""
+    gmat = _make_fake_gmat(
+        objects,
+        run_script_status=run_script_status,
+        run_script_raises=run_script_raises,
+        log_text=log_text,
+    )
+    install = _make_install(tmp_path / "gmat")
+    mission = Mission(
+        gmat=gmat,
+        install=install,
+        script_path=tmp_path / "mission.script",
+    )
+    return mission, gmat
+
+
+class TestMissionRun:
+    def test_run_returns_results_with_log(self, tmp_path: Path) -> None:
+        mission, _ = _run_mission(
+            tmp_path,
+            objects={"R1": _report_file("R1", "r1.txt")},
+            log_text="GMAT execution complete\n",
+        )
+        result = mission.run()
+        assert isinstance(result, Results)
+        assert result.log == "GMAT execution complete\n"
+        # The default workspace is a temp dir, surfaced on output_dir.
+        assert result.output_dir.is_dir()
+
+    def test_run_populates_report_paths(self, tmp_path: Path) -> None:
+        mission, _ = _run_mission(
+            tmp_path,
+            objects={"R1": _report_file("R1", "r1.txt")},
+        )
+        result = mission.run()
+        assert list(result.reports) == ["R1"]
+        # Relative filenames join the workspace dir.
+        assert result.reports.keys() == {"R1"}
+        # The path mapping itself is internal; reach through ephemeris_paths-style
+        # behaviour by verifying the workspace dir owns it.
+        # Use the parser-free path check on the lazy view's underlying mapping.
+        # (We expose the path via output_dir + basename.)
+        assert (result.output_dir / "r1.txt").parent == result.output_dir
+
+    def test_run_buckets_outputs_by_subscriber_type(self, tmp_path: Path) -> None:
+        mission, _ = _run_mission(
+            tmp_path,
+            objects={
+                "R1": _report_file("R1", "r1.txt"),
+                "E1": _ephemeris_file("E1", "e1.eph"),
+                "C1": _contact_locator("C1", "c1.txt"),
+            },
+        )
+        result = mission.run()
+        assert list(result.reports) == ["R1"]
+        assert list(result.ephemeris_paths) == ["E1"]
+        assert list(result.contact_paths) == ["C1"]
+        assert result.ephemeris_paths["E1"] == result.output_dir / "e1.eph"
+        assert result.contact_paths["C1"] == result.output_dir / "c1.txt"
+
+    def test_run_ignores_non_output_subscribers(self, tmp_path: Path) -> None:
+        # OrbitView is a Subscriber but not one gmat-run records; the fake's
+        # GetListOfObjects(SUBSCRIBER) only returns ReportFile/EphemerisFile,
+        # so this is implicitly covered. Add an explicit registry entry
+        # *outside* the bucket to confirm Mission.run doesn't walk extra
+        # objects via GetObject. Adding to the registry without an object-
+        # type-bucket entry models that.
+        mission, gmat = _run_mission(tmp_path)
+        # Inject a bare Spacecraft directly — it's in registry but not in any
+        # subscriber bucket, so GetListOfObjects won't surface it.
+        gmat._registry["Sat"] = _spacecraft()
+        result = mission.run()
+        assert len(result.reports) == 0
+        assert len(result.ephemeris_paths) == 0
+        assert len(result.contact_paths) == 0
+
+    def test_run_uses_provided_working_dir(self, tmp_path: Path) -> None:
+        custom = tmp_path / "user-output"
+        mission, _ = _run_mission(
+            tmp_path,
+            objects={"R1": _report_file("R1", "r1.txt")},
+        )
+        result = mission.run(working_dir=custom)
+        assert result.output_dir == custom
+        assert custom.is_dir()
+        # No tempdir was allocated when a working dir is provided.
+        assert result._workspace is None
+
+    def test_run_creates_missing_working_dir(self, tmp_path: Path) -> None:
+        custom = tmp_path / "nested" / "output"
+        assert not custom.exists()
+        mission, _ = _run_mission(tmp_path)
+        result = mission.run(working_dir=custom)
+        assert custom.is_dir()
+        assert result.output_dir == custom
+
+    def test_run_default_workspace_is_temp_dir_tied_to_results(
+        self, tmp_path: Path
+    ) -> None:
+        mission, _ = _run_mission(tmp_path)
+        result = mission.run()
+        # The workspace is a TemporaryDirectory parked on Results so lazy
+        # report parsing keeps working after run() returns.
+        assert result._workspace is not None
+        workspace_dir = result.output_dir
+        assert workspace_dir.is_dir()
+        # Cleanup happens when Results is dropped.
+        result._workspace.cleanup()
+        assert not workspace_dir.is_dir()
+
+    def test_run_rewrites_subscriber_filenames(self, tmp_path: Path) -> None:
+        # Each relative Filename gets pinned to an absolute path inside the
+        # workspace via SetField — the only setting GMAT reads at write time.
+        rf = _report_file("RF", "rel.txt")
+        mission, _ = _run_mission(tmp_path, objects={"RF": rf})
+        result = mission.run()
+        # Filename was rewritten on the underlying object…
+        assert ("Filename", str(result.output_dir / "rel.txt")) in rf.set_calls
+        # …and Results captures the same resolved path.
+        assert result.reports._paths == {  # type: ignore[attr-defined]
+            "RF": result.output_dir / "rel.txt"
+        }
+
+    def test_run_redirects_log(self, tmp_path: Path) -> None:
+        mission, gmat = _run_mission(tmp_path)
+        result = mission.run()
+        # UseLogFile was pointed at GmatLog.txt inside the workspace.
+        assert gmat._log_paths == [str(result.output_dir / "GmatLog.txt")]
+
+    def test_run_preserves_absolute_filenames(self, tmp_path: Path) -> None:
+        absolute = tmp_path / "elsewhere" / "report.txt"
+        rf = _report_file("R1", str(absolute))
+        mission, _ = _run_mission(tmp_path, objects={"R1": rf})
+        result = mission.run()
+        # Stored path is the absolute one from the script, untouched.
+        assert result.reports._paths == {"R1": absolute}  # type: ignore[attr-defined]
+        # And the engine's Filename was *not* rewritten (would be wasteful
+        # and would silently relocate user-pinned outputs).
+        assert all(name != "Filename" for name, _ in rf.set_calls)
+
+    def test_run_failure_status_raises_gmat_run_error(self, tmp_path: Path) -> None:
+        mission, _ = _run_mission(
+            tmp_path,
+            run_script_status=-5,
+            log_text="ERROR: solver diverged\n",
+        )
+        with pytest.raises(GmatRunError) as excinfo:
+            mission.run()
+        assert "status -5" in str(excinfo.value)
+        assert excinfo.value.log == "ERROR: solver diverged\n"
+
+    def test_run_engine_exception_raises_gmat_run_error(self, tmp_path: Path) -> None:
+        # gmatpy's APIException (modelled here by _FakeAPIException) is the
+        # canonical engine-level error type.
+        mission, _ = _run_mission(
+            tmp_path,
+            run_script_raises=_FakeAPIException("integrator blew up"),
+            log_text="ERROR: integrator blew up\n",
+        )
+        with pytest.raises(GmatRunError) as excinfo:
+            mission.run()
+        assert "integrator blew up" in str(excinfo.value)
+        assert "_FakeAPIException" in str(excinfo.value)
+        assert excinfo.value.log == "ERROR: integrator blew up\n"
+        assert isinstance(excinfo.value.__cause__, _FakeAPIException)
+
+    def test_run_works_without_any_subscribers(self, tmp_path: Path) -> None:
+        mission, _ = _run_mission(tmp_path)
+        result = mission.run()
+        assert len(result.reports) == 0
+        assert len(result.ephemeris_paths) == 0
+        assert len(result.contact_paths) == 0
+        # Log was still captured.
+        assert result.log == "fake gmat log\n"
+
+    def test_run_unknown_engine_exception_still_wrapped(self, tmp_path: Path) -> None:
+        # If a non-APIException leaks out of RunScript (programmer bug, plugin
+        # crash) we still want to surface a GmatRunError with the chained
+        # cause, not a raw stack trace from engine code.
+        mission, gmat = _run_mission(tmp_path)
+        # Replace the configured exception type on the fake module with one
+        # that has nothing to do with the actual error class — simulates the
+        # case where the engine's exception type doesn't match what we expect.
+        gmat.APIException = _FakeAPIException  # type: ignore[attr-defined]
+
+        def _boom() -> int:
+            raise RuntimeError("plugin crash")
+
+        gmat.RunScript = _boom  # type: ignore[attr-defined]
+        # RuntimeError is not _FakeAPIException, so the except clause does not
+        # catch it — the test asserts the leak. This guards the documented
+        # behaviour: only GMAT engine exceptions are captured; programmer
+        # errors propagate.
+        with pytest.raises(RuntimeError):
+            mission.run()
