@@ -234,6 +234,58 @@ def test_ephemerides_unknown_key_raises_keyerror(tmp_path: Path) -> None:
         _ = result.ephemerides["nope"]
 
 
+# --- ephemeris format dispatch (CCSDS-OEM vs STK-TimePosVel) -----------------
+
+
+_STK_FILE = """\
+stk.v.11.0
+# WrittenBy    GMAT R2026a
+BEGIN Ephemeris
+NumberOfEphemerisPoints 1
+ScenarioEpoch           01 Jan 2026 12:00:00.000
+CentralBody             Earth
+CoordinateSystem        J2000
+
+EphemerisTimePosVel
+
+0.0  -5.936e+03  1.591e+03  3.337e+03  -1.955e+00  -7.296e+00  2.207e-16
+
+END Ephemeris
+"""
+
+
+def test_ephemeris_dispatch_routes_oem_and_stk(tmp_path: Path) -> None:
+    """One Mission.run can declare both formats; each file routes by content."""
+    oem = _write_eph(tmp_path / "OEM.oem")
+    stk = tmp_path / "STK.e"
+    stk.write_text(_STK_FILE, encoding="utf-8")
+
+    result = Results(
+        output_dir=tmp_path,
+        log="",
+        ephemeris_paths={"OEM": oem, "STK": stk},
+    )
+
+    oem_df = result.ephemerides["OEM"]
+    stk_df = result.ephemerides["STK"]
+
+    # OEM-specific attr — confirms the OEM parser ran.
+    assert oem_df.attrs["coordinate_system"] == "EME2000"
+    # STK-specific attr — confirms the STK parser ran.
+    assert stk_df.attrs["coordinate_system"] == "J2000"
+    assert stk_df.attrs["scenario_epoch"] == "01 Jan 2026 12:00:00.000"
+
+
+def test_ephemeris_dispatch_ignores_extension(tmp_path: Path) -> None:
+    """Format detection is content-based; ``.oem`` extension on STK content is fine."""
+    misnamed = tmp_path / "looks_like_oem.oem"
+    misnamed.write_text(_STK_FILE, encoding="utf-8")
+    result = Results(output_dir=tmp_path, log="", ephemeris_paths={"E": misnamed})
+    df = result.ephemerides["E"]
+    # An OEM parse on this file would fail immediately; an STK parse succeeds.
+    assert df.attrs["scenario_epoch"] == "01 Jan 2026 12:00:00.000"
+
+
 def test_contact_paths_round_trip(tmp_path: Path) -> None:
     con = tmp_path / "C1.txt"
     result = Results(output_dir=tmp_path, log="", contact_paths={"C1": con})
