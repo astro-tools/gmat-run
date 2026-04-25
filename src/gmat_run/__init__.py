@@ -13,7 +13,7 @@ from gmat_run.mission import Mission
 from gmat_run.results import Results
 from gmat_run.runtime import bootstrap
 
-__version__ = "0.0.0"
+__version__ = "0.1.0"
 
 __all__ = [
     "GmatError",

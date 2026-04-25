@@ -3,8 +3,21 @@
 ## Requirements
 
 - Python 3.10, 3.11, or 3.12.
-- A local GMAT install (R2022a or later; R2026a is the primary development target).
-  See [Install GMAT](install-gmat.md).
+- A local GMAT install. See [Install GMAT](install-gmat.md). gmat-run does not ship
+  GMAT binaries.
+
+### Supported GMAT versions
+
+| GMAT release | Status                       | CI                                            |
+| ------------ | ---------------------------- | --------------------------------------------- |
+| R2026a       | Primary development target   | Exercised on every PR (Ubuntu + Windows)      |
+| R2025a       | Expected to work             | Not exercised in CI for v0.1                  |
+| R2024a       | Expected to work             | Not exercised in CI for v0.1                  |
+| R2023a       | Expected to work             | Not exercised in CI for v0.1                  |
+| R2022a       | Expected to work             | Not exercised in CI for v0.1                  |
+
+A wider CI matrix is planned for a follow-up release; report any version-specific
+breakage as an issue and we'll add a CI cell for it.
 
 ## Install gmat-run
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gmat-run"
-version = "0.0.0"
+version = "0.1.0"
 description = "Run GMAT mission scripts from Python and get results as pandas DataFrames."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Dimitrije Jankovic" }]
 keywords = ["gmat", "astrodynamics", "orbital-mechanics", "mission-analysis", "space"]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
   "Operating System :: POSIX :: Linux",
