@@ -91,3 +91,15 @@ addopts = "-ra --strict-markers --strict-config -m 'not integration'"
 markers = [
   "integration: tests that require a working GMAT install (deselect with -m 'not integration')",
 ]
+
+[tool.coverage.run]
+source = ["src/gmat_run"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "@overload",
+]
