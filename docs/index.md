@@ -2,9 +2,6 @@
 
 Run GMAT mission scripts from Python and get results as pandas DataFrames.
 
-!!! warning "Pre-alpha"
-    The public API is not yet stable. Pin a specific version when depending on `gmat-run`.
-
 ## What this is
 
 A thin, Pythonic wrapper around NASA GMAT's own `gmatpy` runtime. You bring a working

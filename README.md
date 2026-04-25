@@ -8,8 +8,6 @@
 
 Run GMAT mission scripts from Python and get results as pandas DataFrames.
 
-> **Status:** pre-alpha. Scaffolding only — no public API yet.
-
 ## What this is
 
 A thin, Pythonic wrapper around NASA GMAT's own `gmatpy` runtime. You bring a working `.script`;
