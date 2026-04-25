@@ -43,3 +43,7 @@ GMAT.log
 *.eph
 *.oem
 output/
+
+# But: committed parser fixtures must survive the *.eph / *.oem exclusion.
+!tests/fixtures/ephemeris/*.oem
+!tests/fixtures/ephemeris/*.eph
