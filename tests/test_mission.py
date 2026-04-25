@@ -129,8 +129,14 @@ class _FakeObject:
     # --- writes ---
 
     def SetField(self, name: str, value: Any) -> None:
-        # Update the stored value so round-trip tests can re-read.
+        # Update the stored value so round-trip tests can re-read. Mimic the
+        # real engine for read-only fields: raise so the wrapper layer is
+        # exercised. (Real GMAT silently accepts CartesianX too in some
+        # contexts, but raising is the strict behaviour callers should
+        # depend on, and matches what fields like Spacecraft.Id reject.)
         type_code, _, read_only = self._fields[name]
+        if read_only:
+            raise RuntimeError(f"field '{name}' is read-only")
         self._fields[name] = (type_code, value, read_only)
         self.set_calls.append((name, value))
 
@@ -478,12 +484,36 @@ class TestErrors:
             _ = mission["Sat.NoSuchField"]
         assert excinfo.value.__cause__ is not None
 
-    def test_read_only_field_on_set(self, mission: Mission) -> None:
+    def test_engine_error_on_set_is_wrapped(self, mission: Mission) -> None:
+        # Real gmatpy raises APIException for some failed writes (read-only
+        # fields, illegal enum values, etc.). The fake raises RuntimeError
+        # for read-only fields so we exercise the engine-error wrapping
+        # path. The wrapper turns whatever was raised into a GmatFieldError.
         with pytest.raises(GmatFieldError) as excinfo:
             mission["Sat.CartesianX"] = 100.0
+        assert "GMAT rejected" in str(excinfo.value)
         assert "read-only" in str(excinfo.value)
         assert excinfo.value.path == "Sat.CartesianX"
         assert excinfo.value.value == 100.0
+        assert isinstance(excinfo.value.__cause__, RuntimeError)
+
+    def test_unknown_resource_swig_attribute_error(self, tmp_path: Path) -> None:
+        # gmatpy's SWIG wrapper raises AttributeError from inside GetObject
+        # for unknown names rather than returning None. Mission must catch
+        # that quirk and surface a typed GmatFieldError.
+        gmat = _make_fake_gmat()
+
+        def _raising_get_object(_name: str) -> Any:
+            raise AttributeError("'NoneType' object has no attribute 'GetTypeName'")
+
+        gmat.GetObject = _raising_get_object  # type: ignore[attr-defined]
+        install = _make_install(tmp_path / "gmat")
+        m = Mission(gmat=gmat, install=install, script_path=tmp_path / "x.script")
+
+        with pytest.raises(GmatFieldError) as excinfo:
+            _ = m["Whatever.SMA"]
+        assert "unknown resource" in str(excinfo.value)
+        assert isinstance(excinfo.value.__cause__, AttributeError)
 
     def test_path_with_no_dot(self, mission: Mission) -> None:
         with pytest.raises(GmatFieldError) as excinfo:

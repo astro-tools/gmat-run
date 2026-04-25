@@ -110,20 +110,34 @@ class Mission:
         resource, field = _split_path(dotted, value=value)
         obj = self._resolve_resource(resource, dotted, value=value)
         pid = self._resolve_field(obj, field, dotted, value=value)
-        if obj.IsParameterReadOnly(pid):
-            raise GmatFieldError(
-                f"field '{dotted}' is read-only outside the mission sequence",
-                dotted,
-                value,
-            )
         type_code = obj.GetParameterType(pid)
         coerced = self._coerce(type_code, value, dotted)
-        obj.SetField(field, coerced)
+        # No preemptive `IsParameterReadOnly` gate: it raises for calculated
+        # parameters (e.g. Spacecraft.SMA) and false-positives for delegated
+        # fields on PropSetup. Let the engine reject the write itself.
+        try:
+            obj.SetField(field, coerced)
+        except Exception as exc:
+            raise GmatFieldError(
+                f"GMAT rejected write to '{dotted}': {exc}",
+                dotted,
+                value,
+            ) from exc
 
     # --- internal helpers -----------------------------------------------------
 
     def _resolve_resource(self, name: str, dotted: str, *, value: Any) -> Any:
-        obj = self._gmat.GetObject(name)
+        try:
+            obj = self._gmat.GetObject(name)
+        except AttributeError as exc:
+            # gmatpy's GetObject raises AttributeError from inside the SWIG
+            # wrapper when the name does not resolve (it calls
+            # `val.GetTypeName()` on a NULL pointer).
+            raise GmatFieldError(
+                f"unknown resource '{name}' (no object by that name in the loaded script)",
+                dotted,
+                value,
+            ) from exc
         if obj is None:
             raise GmatFieldError(
                 f"unknown resource '{name}' (no object by that name in the loaded script)",
