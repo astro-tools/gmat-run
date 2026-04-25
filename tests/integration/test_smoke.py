@@ -1,17 +1,12 @@
-"""Integration tests for :meth:`gmat_run.mission.Mission.run`.
+"""Smoke test: a minimal self-contained mission round-trips end to end.
 
-Runs a minimal self-contained ``.script`` end-to-end against a real GMAT
-install and asserts the round trip works: ``Mission.load`` → ``run`` →
-``Results.reports[name]`` returns a DataFrame.
-
+Runs an inline ``.script`` against a real GMAT install and asserts the full
+pipeline (install discovery, gmatpy bootstrap, script load, output
+redirection, run, log capture, report parsing) produces a sane DataFrame.
 The fixture script is written into ``tmp_path`` rather than picked from
 ``samples/`` so the test is independent of which stock samples ship with a
-given GMAT release. It exercises the full pipeline (install discovery,
-gmatpy bootstrap, script load, output redirection, run, log capture, report
-parsing) but does not assume any sample data files exist on disk.
-
-Gated behind the ``integration`` pytest marker; CI runs it on Ubuntu and
-Windows against a cached GMAT install.
+given GMAT release. The stock-sample regression coverage lives in
+:mod:`tests.integration.test_round_trip`.
 """
 
 from __future__ import annotations
@@ -22,9 +17,6 @@ import pandas as pd
 import pytest
 
 from gmat_run import Mission
-from gmat_run.errors import GmatLoadError, GmatNotFoundError
-from gmat_run.install import locate_gmat
-from gmat_run.runtime import bootstrap
 
 pytestmark = pytest.mark.integration
 
@@ -64,29 +56,6 @@ RF.WriteHeaders = True
 BeginMissionSequence
 Propagate Prop(Sat) {Sat.ElapsedSecs = 600}
 """
-
-
-@pytest.fixture(scope="module")
-def gmat_available() -> None:
-    """Skip module if no usable GMAT install can be discovered and loaded.
-
-    Both halves are checked: discovery (a structurally valid install on disk)
-    and bootstrap (gmatpy importable in the current interpreter). The latter
-    catches the cross-OS case where a Windows install is mounted into a Linux
-    Python — discovery passes, but the .pyd cannot be loaded.
-
-    Module-scoped so the costs aren't paid per test. ``bootstrap`` is
-    one-shot-per-process anyway; calling it here primes the cache for the
-    subsequent ``Mission.load`` calls.
-    """
-    try:
-        install = locate_gmat()
-    except GmatNotFoundError as exc:
-        pytest.skip(f"no GMAT install discoverable: {exc}")
-    try:
-        bootstrap(install)
-    except GmatLoadError as exc:
-        pytest.skip(f"GMAT install discovered but gmatpy not loadable: {exc}")
 
 
 @pytest.fixture

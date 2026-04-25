@@ -122,7 +122,10 @@ jobs:
         run: uv sync --all-groups
 
       - name: Run pytest
-        run: uv run pytest
+        # `-m "integration or not integration"` overrides the default
+        # marker filter in pyproject.toml so CI runs both unit and
+        # integration suites in a single invocation.
+        run: uv run pytest -m "integration or not integration"
 
   lint:
     name: lint
