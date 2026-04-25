@@ -59,9 +59,7 @@ def _write_fake_gmatpy(install: GmatInstall, *, import_error: str | None = None)
         init.write_text(f"raise ImportError({import_error!r})\n", encoding="utf-8")
     else:
         init.write_text(
-            "SETUP_CALLS = []\n"
-            "def Setup(path):\n"
-            "    SETUP_CALLS.append(path)\n",
+            "SETUP_CALLS = []\ndef Setup(path):\n    SETUP_CALLS.append(path)\n",
             encoding="utf-8",
         )
 

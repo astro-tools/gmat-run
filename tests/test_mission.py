@@ -198,9 +198,7 @@ def _make_fake_gmat(
 
     class _FakeModerator:
         def GetListOfObjects(self, type_id: int) -> list[str]:
-            kind = next(
-                (k for k, v in _OBJECT_TYPE_IDS.items() if v == type_id), None
-            )
+            kind = next((k for k, v in _OBJECT_TYPE_IDS.items() if v == type_id), None)
             if kind is None:
                 return []
             return [
@@ -253,38 +251,38 @@ def _make_install(root: Path) -> GmatInstall:
 def _spacecraft(name: str = "Sat") -> _FakeObject:
     """Spacecraft with a representative slice of fields per type code."""
     fields: dict[str, tuple[int, Any, bool]] = {
-        "SMA":              (_TYPE_CODES["REAL_TYPE"],         7000.0,                False),
-        "DryMass":          (_TYPE_CODES["REAL_TYPE"],         50.0,                  False),
-        "OrbitColor":       (_TYPE_CODES["INTEGER_TYPE"],      255,                   False),
-        "DisplayStateType": (_TYPE_CODES["ENUMERATION_TYPE"],  "Keplerian",           False),
-        "DateFormat":       (_TYPE_CODES["STRING_TYPE"],       "UTCGregorian",        False),
-        "CoordinateSystem": (_TYPE_CODES["OBJECT_TYPE"],       "EarthMJ2000Eq",       False),
-        "Tanks":            (_TYPE_CODES["STRINGARRAY_TYPE"],  ["MainTank"],          False),
-        "CartesianX":       (_TYPE_CODES["REAL_TYPE"],         -999.999,              True),
-        "Covariance":       (_TYPE_CODES["RMATRIX_TYPE"],      [[1.0, 0.0], [0.0, 2.0]], False),
-        "EulerAngles":      (_TYPE_CODES["RVECTOR_TYPE"],      [10.0, 20.0, 30.0],    False),
+        "SMA": (_TYPE_CODES["REAL_TYPE"], 7000.0, False),
+        "DryMass": (_TYPE_CODES["REAL_TYPE"], 50.0, False),
+        "OrbitColor": (_TYPE_CODES["INTEGER_TYPE"], 255, False),
+        "DisplayStateType": (_TYPE_CODES["ENUMERATION_TYPE"], "Keplerian", False),
+        "DateFormat": (_TYPE_CODES["STRING_TYPE"], "UTCGregorian", False),
+        "CoordinateSystem": (_TYPE_CODES["OBJECT_TYPE"], "EarthMJ2000Eq", False),
+        "Tanks": (_TYPE_CODES["STRINGARRAY_TYPE"], ["MainTank"], False),
+        "CartesianX": (_TYPE_CODES["REAL_TYPE"], -999.999, True),
+        "Covariance": (_TYPE_CODES["RMATRIX_TYPE"], [[1.0, 0.0], [0.0, 2.0]], False),
+        "EulerAngles": (_TYPE_CODES["RVECTOR_TYPE"], [10.0, 20.0, 30.0], False),
     }
     return _FakeObject("Spacecraft", name, fields)
 
 
 def _propagator(name: str = "DefaultProp") -> _FakeObject:
     fields: dict[str, tuple[int, Any, bool]] = {
-        "InitialStepSize": (_TYPE_CODES["REAL_TYPE"],     60.0,            False),
-        "Accuracy":        (_TYPE_CODES["REAL_TYPE"],     1e-12,           False),
-        "Type":            (_TYPE_CODES["STRING_TYPE"],   "PrinceDormand78", False),
-        "StopIfAccuracyIsViolated": (_TYPE_CODES["BOOLEAN_TYPE"], True,    False),
+        "InitialStepSize": (_TYPE_CODES["REAL_TYPE"], 60.0, False),
+        "Accuracy": (_TYPE_CODES["REAL_TYPE"], 1e-12, False),
+        "Type": (_TYPE_CODES["STRING_TYPE"], "PrinceDormand78", False),
+        "StopIfAccuracyIsViolated": (_TYPE_CODES["BOOLEAN_TYPE"], True, False),
     }
     return _FakeObject("Propagator", name, fields)
 
 
 def _impulsive_burn(name: str = "TOI") -> _FakeObject:
     fields: dict[str, tuple[int, Any, bool]] = {
-        "Element1":         (_TYPE_CODES["REAL_TYPE"],         0.0,             False),
-        "Element2":         (_TYPE_CODES["REAL_TYPE"],         0.0,             False),
-        "Element3":         (_TYPE_CODES["REAL_TYPE"],         0.0,             False),
-        "CoordinateSystem": (_TYPE_CODES["OBJECT_TYPE"],       "EarthMJ2000Eq", False),
-        "Axes":             (_TYPE_CODES["ENUMERATION_TYPE"],  "VNB",           False),
-        "DecrementMass":    (_TYPE_CODES["BOOLEAN_TYPE"],      False,           False),
+        "Element1": (_TYPE_CODES["REAL_TYPE"], 0.0, False),
+        "Element2": (_TYPE_CODES["REAL_TYPE"], 0.0, False),
+        "Element3": (_TYPE_CODES["REAL_TYPE"], 0.0, False),
+        "CoordinateSystem": (_TYPE_CODES["OBJECT_TYPE"], "EarthMJ2000Eq", False),
+        "Axes": (_TYPE_CODES["ENUMERATION_TYPE"], "VNB", False),
+        "DecrementMass": (_TYPE_CODES["BOOLEAN_TYPE"], False, False),
     }
     return _FakeObject("ImpulsiveBurn", name, fields)
 
@@ -756,9 +754,7 @@ class TestMissionRun:
         assert custom.is_dir()
         assert result.output_dir == custom
 
-    def test_run_default_workspace_is_temp_dir_tied_to_results(
-        self, tmp_path: Path
-    ) -> None:
+    def test_run_default_workspace_is_temp_dir_tied_to_results(self, tmp_path: Path) -> None:
         mission, _ = _run_mission(tmp_path)
         result = mission.run()
         # The workspace is a TemporaryDirectory parked on Results so lazy
@@ -859,9 +855,7 @@ class TestMissionRun:
         assert report_path.is_absolute()
         assert report_path.parent == result.output_dir
 
-    def test_run_default_temp_dir_cleaned_up_when_results_dropped(
-        self, tmp_path: Path
-    ) -> None:
+    def test_run_default_temp_dir_cleaned_up_when_results_dropped(self, tmp_path: Path) -> None:
         # The TemporaryDirectory parked on Results runs its finaliser when GC
         # collects the instance, so the workspace disappears with the result.
         mission, _ = _run_mission(tmp_path / "gmat")
@@ -874,9 +868,7 @@ class TestMissionRun:
 
         assert not workspace.is_dir()
 
-    def test_run_explicit_working_dir_survives_results_drop(
-        self, tmp_path: Path
-    ) -> None:
+    def test_run_explicit_working_dir_survives_results_drop(self, tmp_path: Path) -> None:
         # The opt-in path: when the caller pinned working_dir, the directory
         # is theirs and gmat-run leaves it alone on Results cleanup.
         custom = tmp_path / "user-output"

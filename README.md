@@ -16,15 +16,6 @@ A thin, Pythonic wrapper around NASA GMAT's own `gmatpy` runtime. You bring a wo
 gmat-run loads it, lets you override fields from Python, runs the mission headlessly, and returns
 `ReportFile` / ephemeris / `ContactLocator` output as pandas DataFrames.
 
-```python
-from gmat_run import Mission
-
-mission = Mission.load("flyby.script")
-mission["Sat.SMA"] = 7000
-result = mission.run()
-result.reports["ReportFile1"].plot(x="UTCGregorian", y="Sat.Earth.Altitude")
-```
-
 ## What this is not
 
 - **Not** a way to build GMAT missions from scratch in Python — see
@@ -35,9 +26,21 @@ result.reports["ReportFile1"].plot(x="UTCGregorian", y="Sat.Earth.Altitude")
 ## Requirements
 
 - Python 3.10, 3.11, or 3.12.
-- A local GMAT install (R2022a or later; R2026a is the primary development target). gmat-run
-  does not ship GMAT binaries — install GMAT separately from
+- A local GMAT install. gmat-run does not ship GMAT binaries — install GMAT separately from
   [gmat.gsfc.nasa.gov](https://gmat.gsfc.nasa.gov/).
+
+### Supported GMAT versions
+
+| GMAT release | Status | CI |
+|---|---|---|
+| R2026a | Primary development target | Exercised on every PR (Ubuntu + Windows) |
+| R2025a | Expected to work | Not exercised in CI for v0.1 |
+| R2024a | Expected to work | Not exercised in CI for v0.1 |
+| R2023a | Expected to work | Not exercised in CI for v0.1 |
+| R2022a | Expected to work | Not exercised in CI for v0.1 |
+
+A wider CI matrix is planned for a follow-up release; report any version-specific breakage as
+an issue and we'll add a CI cell for it.
 
 ## Installation
 
@@ -48,6 +51,27 @@ git clone https://github.com/astro-tools/gmat-run.git
 cd gmat-run
 uv sync --all-groups
 ```
+
+## Quick start
+
+Load a script, override a field, run the mission, and read the resulting `ReportFile` as a
+pandas DataFrame:
+
+```python
+from gmat_run import Mission
+
+mission = Mission.load("flyby.script")
+mission["Sat.SMA"] = 7000
+result = mission.run()
+result.reports["ReportFile1"].plot(x="UTCGregorian", y="Sat.Earth.Altitude")
+```
+
+`Mission.load` discovers a local GMAT install (honouring the `GMAT_ROOT` environment variable
+or a `gmat_root=` argument), bootstraps `gmatpy`, and parses the script into the live GMAT
+object graph. Subscript access reads and writes fields against that graph with type coercion.
+`mission.run()` executes the mission sequence headlessly, captures GMAT's log, and returns a
+`Results` whose `reports` mapping parses each `ReportFile` to a DataFrame on first access —
+with `UTCGregorian` and `*ModJulian` epoch columns promoted to `datetime64[ns]`.
 
 ## Documentation
 
