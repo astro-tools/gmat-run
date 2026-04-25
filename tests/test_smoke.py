@@ -1,4 +1,5 @@
 """Smoke tests — the package imports and exposes its version."""
+
 import gmat_run
 
 

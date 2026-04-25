@@ -363,9 +363,7 @@ class TestPersist:
         assert workspace.is_dir()
         assert (workspace / "r1.txt").exists()
 
-    def test_absolute_paths_outside_workspace_are_not_migrated(
-        self, tmp_path: Path
-    ) -> None:
+    def test_absolute_paths_outside_workspace_are_not_migrated(self, tmp_path: Path) -> None:
         # A ReportFile.Filename like "/abs/elsewhere/report.txt" lands outside
         # the workspace and was not rewritten by Mission.run. persist must
         # leave that path intact rather than silently relocating it.

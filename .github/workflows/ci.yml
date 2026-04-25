@@ -142,6 +142,7 @@ jobs:
           cache-dependency-glob: uv.lock
       - run: uv sync --all-groups
       - run: uv run ruff check
+      - run: uv run ruff format --check
 
   typecheck:
     name: typecheck

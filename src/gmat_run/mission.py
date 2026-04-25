@@ -196,9 +196,7 @@ class Mission:
         # has been parsed: the resolved absolute path is cached on each
         # subscriber, and overriding the Filename field is the only setting
         # the engine consults at write time.
-        report_paths, ephemeris_paths, contact_paths = self._rewrite_output_paths(
-            workspace_path
-        )
+        report_paths, ephemeris_paths, contact_paths = self._rewrite_output_paths(workspace_path)
         self._gmat.UseLogFile(str(log_path))
 
         api_exception = _get_api_exception(self._gmat)
@@ -352,8 +350,10 @@ class Mission:
             return [float(x) for x in obj.GetVector(field)]
         if kind == "rmatrix":
             matrix = obj.GetMatrix(field)
-            return [[float(matrix.GetElement(i, j)) for j in range(matrix.GetNumColumns())]
-                    for i in range(matrix.GetNumRows())]
+            return [
+                [float(matrix.GetElement(i, j)) for j in range(matrix.GetNumColumns())]
+                for i in range(matrix.GetNumRows())
+            ]
         # STRING_TYPE, FILENAME_TYPE, OBJECT_TYPE, ENUMERATION_TYPE, and
         # anything we did not classify — fall back to the string form.
         return str(obj.GetField(field))
@@ -387,10 +387,14 @@ class Mission:
                 raise self._type_mismatch(dotted, value, "a list of numbers")
             return [float(x) for x in value]
         if kind == "rmatrix":
-            if not isinstance(value, (list, tuple)) or not value or any(
-                not isinstance(row, (list, tuple))
-                or any(isinstance(x, bool) or not isinstance(x, (int, float)) for x in row)
-                for row in value
+            if (
+                not isinstance(value, (list, tuple))
+                or not value
+                or any(
+                    not isinstance(row, (list, tuple))
+                    or any(isinstance(x, bool) or not isinstance(x, (int, float)) for x in row)
+                    for row in value
+                )
             ):
                 raise self._type_mismatch(dotted, value, "a list of lists of numbers")
             return [[float(x) for x in row] for row in value]

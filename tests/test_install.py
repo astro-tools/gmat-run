@@ -83,9 +83,7 @@ def test_gmat_root_argument_accepts_string(tmp_path: Path) -> None:
     assert result.root == root
 
 
-def test_gmat_root_argument_expands_user(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_gmat_root_argument_expands_user(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = _make_install(tmp_path / "gmat-R2026a")
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
@@ -196,9 +194,7 @@ def test_glob_patterns_per_platform(platform: str, expected_pattern_substr: str)
 # --- PATH ---------------------------------------------------------------------
 
 
-def test_path_discovery_via_gmat_console(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_path_discovery_via_gmat_console(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = _make_install(tmp_path / "gmat-R2026a")
     binary = root / "bin" / "GmatConsole"
     binary.touch()
@@ -210,9 +206,7 @@ def test_path_discovery_via_gmat_console(
     assert locate_gmat().root == root
 
 
-def test_path_discovery_skips_invalid_root(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_path_discovery_skips_invalid_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Binary on PATH but its parent.parent is not a real install.
     bogus_bin = tmp_path / "elsewhere" / "bin"
     bogus_bin.mkdir(parents=True)

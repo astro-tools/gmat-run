@@ -25,8 +25,7 @@ def _write(path: Path, content: str, encoding: str = "utf-8", newline: str = "\n
 # A three-column happy-path sample mirroring GMAT's R2026a layout: Gregorian
 # epoch, a float field, a scientific-notation field, and an integer mass.
 _HEADER = (
-    "Sat.UTCGregorian          Sat.Earth.SMA             "
-    "Sat.Earth.ECC             Sat.TotalMass"
+    "Sat.UTCGregorian          Sat.Earth.SMA             Sat.Earth.ECC             Sat.TotalMass"
 )
 _ROW_1 = "26 Nov 2026 12:00:00.000  6578.136299999994         9.999999999964634e-05     1300000"
 _ROW_2 = "26 Nov 2026 12:01:00.000  6578.137326507367         0.0001451202385349637     1300000"
@@ -103,12 +102,8 @@ def test_utf8_bom_is_stripped(tmp_path: Path) -> None:
     assert next(iter(df.columns)) == "Sat.UTCGregorian"
 
 
-@pytest.mark.parametrize(
-    ("newline", "label"), [("\n", "lf"), ("\r\n", "crlf")], ids=["lf", "crlf"]
-)
-def test_line_endings_produce_identical_frame(
-    tmp_path: Path, newline: str, label: str
-) -> None:
+@pytest.mark.parametrize(("newline", "label"), [("\n", "lf"), ("\r\n", "crlf")], ids=["lf", "crlf"])
+def test_line_endings_produce_identical_frame(tmp_path: Path, newline: str, label: str) -> None:
     path = _write(tmp_path / f"{label}.report", _BASIC, newline=newline)
     df = parse(path)
     reference = parse(_write(tmp_path / "reference.report", _BASIC, newline="\n"))
