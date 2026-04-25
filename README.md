@@ -1,6 +1,7 @@
 # gmat-run
 
 [![CI](https://github.com/astro-tools/gmat-run/actions/workflows/ci.yml/badge.svg)](https://github.com/astro-tools/gmat-run/actions/workflows/ci.yml)
+[![Docs](https://github.com/astro-tools/gmat-run/actions/workflows/docs.yml/badge.svg)](https://astro-tools.github.io/gmat-run/)
 [![PyPI](https://img.shields.io/pypi/v/gmat-run.svg)](https://pypi.org/project/gmat-run/)
 [![Python versions](https://img.shields.io/pypi/pyversions/gmat-run.svg)](https://pypi.org/project/gmat-run/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -47,6 +48,13 @@ git clone https://github.com/astro-tools/gmat-run.git
 cd gmat-run
 uv sync --all-groups
 ```
+
+## Documentation
+
+Full docs at **<https://astro-tools.github.io/gmat-run/>**, including a
+[getting-started guide](https://astro-tools.github.io/gmat-run/getting-started/),
+[GMAT install instructions](https://astro-tools.github.io/gmat-run/install-gmat/),
+and the [API reference](https://astro-tools.github.io/gmat-run/reference/).
 
 ## Licence
 
