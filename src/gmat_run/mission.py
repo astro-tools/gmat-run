@@ -176,7 +176,9 @@ class Mission:
                 creates a fresh :class:`tempfile.TemporaryDirectory` whose
                 lifetime is tied to the returned :class:`Results` — the
                 directory survives until the caller drops the result, so lazy
-                report parsing keeps working without a context manager.
+                report parsing keeps working without a context manager. Call
+                :meth:`Results.persist` before that to copy the artefacts to a
+                permanent location.
 
         Raises:
             GmatRunError: ``RunScript`` returned a non-success status or
