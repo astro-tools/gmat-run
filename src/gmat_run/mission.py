@@ -10,6 +10,10 @@ through ``SetField``. The path format is exactly ``Resource.Field`` — one dot,
 two non-empty segments. Owned-object pass-through (``Sat.Tanks.MainTank.…``)
 is deferred.
 
+:meth:`Mission.run` executes the loaded mission sequence headlessly, captures
+GMAT's log into the returned :class:`~gmat_run.results.Results`, and surfaces
+engine errors as :class:`~gmat_run.errors.GmatRunError`.
+
 ``mission.gmat`` exposes the bootstrapped ``gmatpy`` module as an escape
 hatch for advanced callers. It is not part of the stable public surface.
 """
@@ -18,12 +22,15 @@ from __future__ import annotations
 
 import difflib
 import os
+import tempfile
+from contextlib import suppress
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Final
 
-from gmat_run.errors import GmatFieldError, GmatLoadError
+from gmat_run.errors import GmatFieldError, GmatLoadError, GmatRunError
 from gmat_run.install import GmatInstall, locate_gmat
+from gmat_run.results import Results
 from gmat_run.runtime import bootstrap
 
 __all__ = ["Mission"]
@@ -31,6 +38,21 @@ __all__ = ["Mission"]
 
 # How many candidate field names to surface in "did you mean" suggestions.
 _SUGGESTION_LIMIT: Final = 3
+
+# GMAT subscriber/event-locator subclasses gmat-run records in Results. Other
+# subscribers (OrbitView, GroundTrackPlot, XYPlot) are GUI plotters with no
+# file output and are skipped.
+_OUTPUT_TYPES: Final = ("ReportFile", "EphemerisFile", "ContactLocator")
+
+# Object-type enum names probed on the gmat module to enumerate output
+# resources. ReportFile / EphemerisFile live under SUBSCRIBER; ContactLocator
+# is an EventLocator. Both buckets are walked and de-duplicated.
+_OUTPUT_TYPE_ENUM_ATTRS: Final = ("SUBSCRIBER", "EVENT_LOCATOR")
+
+# Status code returned by gmat.RunScript() / Moderator.RunScript() on success.
+# Negative codes signal initialization or execution failures (see
+# .claude/skills/gmat-python/references/commands.md for the table).
+_RUNSCRIPT_OK: Final = 1
 
 
 class Mission:
@@ -123,6 +145,141 @@ class Mission:
                 dotted,
                 value,
             ) from exc
+
+    def run(
+        self,
+        *,
+        working_dir: str | os.PathLike[str] | None = None,
+    ) -> Results:
+        """Execute the loaded mission sequence and return a :class:`Results`.
+
+        Redirects every relative ``ReportFile``, ``EphemerisFile``, and
+        ``ContactLocator`` output and the GMAT log into ``working_dir`` (or an
+        isolated temp directory when ``None``), runs ``gmat.RunScript()``, and
+        builds a :class:`Results` populated with the resolved output paths and
+        the captured log.
+
+        Args:
+            working_dir: Directory GMAT writes its outputs into. ``None``
+                creates a fresh :class:`tempfile.TemporaryDirectory` whose
+                lifetime is tied to the returned :class:`Results` — the
+                directory survives until the caller drops the result, so lazy
+                report parsing keeps working without a context manager.
+
+        Raises:
+            GmatRunError: ``RunScript`` returned a non-success status or
+                raised a GMAT engine exception. The captured log is attached
+                via ``GmatRunError.log``.
+        """
+        workspace_path, tempdir = _prepare_workspace(working_dir)
+        log_path = workspace_path / "GmatLog.txt"
+
+        # Walk every output subscriber once: bucket the paths and rewrite each
+        # relative Filename to an absolute path inside the workspace so GMAT
+        # writes where we expect. This sidesteps FileManager.OUTPUT_PATH /
+        # GmatGlobal.SetOutputPath, which look like the right knobs but don't
+        # actually redirect ReportFile/EphemerisFile output once the script
+        # has been parsed: the resolved absolute path is cached on each
+        # subscriber, and overriding the Filename field is the only setting
+        # the engine consults at write time.
+        report_paths, ephemeris_paths, contact_paths = self._rewrite_output_paths(
+            workspace_path
+        )
+        self._gmat.UseLogFile(str(log_path))
+
+        api_exception = _get_api_exception(self._gmat)
+        try:
+            status = int(self._gmat.RunScript())
+        except api_exception as exc:
+            raise GmatRunError(
+                f"GMAT raised {type(exc).__name__} during RunScript: {exc}",
+                log=_safe_read(log_path),
+            ) from exc
+
+        log = _safe_read(log_path)
+        if status != _RUNSCRIPT_OK:
+            raise GmatRunError(
+                f"GMAT RunScript returned status {status}; expected {_RUNSCRIPT_OK}",
+                log=log,
+            )
+
+        results = Results(
+            output_dir=workspace_path,
+            log=log,
+            report_paths=report_paths,
+            ephemeris_paths=ephemeris_paths,
+            contact_paths=contact_paths,
+        )
+        # See project memory `gmat-run Mission.run temp-dir lifetime ties to
+        # Results`: the temp dir must outlive Mission.run so lazy report
+        # parsing on `result.reports[name]` still finds the file on disk.
+        results._workspace = tempdir
+        return results
+
+    # --- run helpers ----------------------------------------------------------
+
+    def _rewrite_output_paths(
+        self, workspace_path: Path
+    ) -> tuple[dict[str, Path], dict[str, Path], dict[str, Path]]:
+        """Bucket subscriber output paths and pin each one to ``workspace_path``.
+
+        Walks every ``ReportFile`` / ``EphemerisFile`` / ``ContactLocator`` in
+        the configuration. For each: reads its declared ``Filename``, resolves
+        a relative filename against ``workspace_path`` (preserving an absolute
+        path as-is), writes the resolved absolute path back to the engine via
+        ``SetField("Filename", ...)``, and records the path in the appropriate
+        return bucket. Resilient to missing type-enum attributes and broken
+        objects — skips quietly rather than aborting the whole run.
+
+        Returns:
+            ``(report_paths, ephemeris_paths, contact_paths)`` keyed by
+            resource name.
+        """
+        moderator = self._gmat.Moderator.Instance()
+        reports: dict[str, Path] = {}
+        ephemerides: dict[str, Path] = {}
+        contacts: dict[str, Path] = {}
+        bucket = {
+            "ReportFile": reports,
+            "EphemerisFile": ephemerides,
+            "ContactLocator": contacts,
+        }
+        seen: set[str] = set()
+        for enum_attr in _OUTPUT_TYPE_ENUM_ATTRS:
+            type_id = getattr(self._gmat, enum_attr, None)
+            if type_id is None:
+                continue
+            try:
+                names = list(moderator.GetListOfObjects(type_id))
+            except Exception:
+                # Fall through — the other bucket may still resolve.
+                continue
+            for name in names:
+                if name in seen:
+                    continue
+                seen.add(name)
+                obj = self._gmat.GetObject(name)
+                if obj is None:
+                    continue
+                try:
+                    type_name = obj.GetTypeName()
+                except Exception:
+                    continue
+                if type_name not in _OUTPUT_TYPES:
+                    continue
+                try:
+                    declared = str(obj.GetField("Filename"))
+                except Exception:
+                    continue
+                path = Path(declared)
+                if path.is_absolute():
+                    resolved = path
+                else:
+                    resolved = workspace_path / path.name
+                    with suppress(Exception):
+                        obj.SetField("Filename", str(resolved))
+                bucket[type_name][name] = resolved
+        return reports, ephemerides, contacts
 
     # --- internal helpers -----------------------------------------------------
 
@@ -308,3 +465,48 @@ def _parse_bool(raw: Any) -> bool:
     if isinstance(raw, str):
         return raw.strip().lower() in {"true", "on", "1"}
     return bool(raw)
+
+
+def _prepare_workspace(
+    working_dir: str | os.PathLike[str] | None,
+) -> tuple[Path, tempfile.TemporaryDirectory[str] | None]:
+    """Resolve the run's output directory and (optional) tempdir owner.
+
+    When ``working_dir`` is None we mint a fresh :class:`TemporaryDirectory`
+    and return its handle so the caller can park it on the resulting
+    :class:`Results` to extend its lifetime. A user-supplied path is created
+    on demand; no tempdir is allocated and ``None`` is returned in its slot.
+    """
+    if working_dir is None:
+        tempdir = tempfile.TemporaryDirectory(prefix="gmat-run-")
+        return Path(tempdir.name), tempdir
+    path = Path(working_dir).expanduser()
+    path.mkdir(parents=True, exist_ok=True)
+    return path, None
+
+
+def _safe_read(path: Path) -> str:
+    """Read ``path`` as UTF-8, returning ``""`` on any I/O failure.
+
+    The log file may be missing entirely if ``UseLogFile`` was rejected, or
+    truncated if the engine crashed mid-write. Either way we want to surface
+    *something* on the resulting :class:`~gmat_run.errors.GmatRunError` rather
+    than tripping over the read.
+    """
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def _get_api_exception(gmat: ModuleType) -> type[BaseException]:
+    """Return the gmat engine's exception type, falling back to ``Exception``.
+
+    Real gmatpy exposes ``APIException``; test fakes don't always bother. The
+    fallback keeps the ``except`` clause well-formed without burdening every
+    fixture with a stub class.
+    """
+    exc = getattr(gmat, "APIException", None)
+    if isinstance(exc, type) and issubclass(exc, BaseException):
+        return exc
+    return Exception

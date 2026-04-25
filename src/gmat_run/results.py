@@ -22,6 +22,7 @@ hand back the raw :class:`pathlib.Path`.
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from types import MappingProxyType
@@ -141,6 +142,12 @@ class Results:
     contacts: Mapping[str, pd.DataFrame]
     contact_paths: Mapping[str, Path]
 
+    # When the originating Mission.run() created an isolated temp dir, the
+    # TemporaryDirectory handle is parked here so cleanup is tied to this
+    # instance's GC — keeps the lazy report/ephemeris paths valid until the
+    # caller drops the Results.
+    _workspace: tempfile.TemporaryDirectory[str] | None
+
     def __init__(
         self,
         *,
@@ -152,6 +159,7 @@ class Results:
     ) -> None:
         self.output_dir = output_dir
         self.log = log
+        self._workspace = None
 
         eph_paths: dict[str, Path] = dict(ephemeris_paths or {})
         con_paths: dict[str, Path] = dict(contact_paths or {})
