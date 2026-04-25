@@ -108,10 +108,15 @@ SAMPLES = [
     Sample(
         # In-repo fixture; no stock sample emits an EphemerisFile without
         # also pulling in OpenFramesInterface (which the API runtime can't
-        # load). Exercises the ephemeris parser end-to-end.
+        # load). Exercises the ephemeris parser end-to-end. EphemerisFile
+        # only — the ReportFile path is covered by Ex_TLE_Propagation, and
+        # adaptive-integrator ReportFile timestamps drift by ~1 ms across
+        # platforms, which would force a tolerance loose enough to defeat
+        # the regression signal. EphemerisFile output uses fixed-cadence
+        # interpolation (``EF.StepSize = 60``), so its timestamps are exact
+        # integers on every host.
         script_name="Ex_LEOEphemeris.script",
         script_root="fixtures",
-        reports={"RF": "Ex_LEOEphemeris__RF"},
         ephemerides={"EF": "Ex_LEOEphemeris__EF"},
     ),
 ]

@@ -1,8 +1,10 @@
 %  Minimal LEO mission used by the integration suite to exercise the
 %  EphemerisFile (CCSDS-OEM) writer and round-trip parser. Avoids
 %  OpenFramesInterface / OrbitView so it parses headlessly through gmatpy.
-%  6-hour propagation at 60 s steps gives ~361 ephemeris records, plus a
-%  paired ReportFile so the same sample exercises both writers.
+%  6-hour propagation interpolated onto 60 s ephemeris cadence -> 361
+%  records. The ReportFile path is covered by Ex_TLE_Propagation; this
+%  sample is EphemerisFile-only so the golden comparison stays tight on
+%  fixed-cadence timestamps that don't drift across platforms.
 
 Create Spacecraft Sat
 Sat.DateFormat = UTCGregorian
@@ -33,11 +35,6 @@ EF.FileFormat = CCSDS-OEM
 EF.EpochFormat = UTCGregorian
 EF.WriteEphemeris = true
 EF.StepSize = 60
-
-Create ReportFile RF
-RF.Filename = 'leo_state.txt'
-RF.Add = {Sat.UTCGregorian, Sat.X, Sat.Y, Sat.Z, Sat.VX, Sat.VY, Sat.VZ}
-RF.WriteHeaders = true
 
 BeginMissionSequence
 Propagate Prop(Sat) {Sat.ElapsedSecs = 21600}
