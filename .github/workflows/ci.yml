@@ -125,7 +125,19 @@ jobs:
         # `-m "integration or not integration"` overrides the default
         # marker filter in pyproject.toml so CI runs both unit and
         # integration suites in a single invocation.
-        run: uv run pytest -m "integration or not integration"
+        run: uv run pytest -m "integration or not integration" --cov --cov-report=term-missing
+
+      # Threshold gates run on a single matrix combination — the .coverage
+      # data is identical across runners, so there's no point re-asserting
+      # it on six. Per-package gate (parsers/) matches the v0.1 charter
+      # DoD; overall gate is the project-wide floor.
+      - name: Enforce overall coverage (>=80%)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: uv run coverage report --fail-under=80
+
+      - name: Enforce parsers coverage (>=95%)
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: uv run coverage report --include='src/gmat_run/parsers/*' --fail-under=95
 
   lint:
     name: lint

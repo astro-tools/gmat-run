@@ -17,12 +17,12 @@ live under a :class:`tempfile.TemporaryDirectory` that is cleaned up when this
 :class:`Results` is garbage-collected. Call :meth:`Results.persist` to copy
 the artefacts to a permanent location before the temp dir disappears.
 
-The ``.eph`` ephemeris and ``ContactLocator`` parsers are scheduled for v0.2.
-For v0.1 the corresponding mappings still expose their keys (so callers can
+The ``ContactLocator`` parser is scheduled for a later release. For now the
+:attr:`Results.contacts` mapping still exposes its keys (so callers can
 discover what GMAT wrote without branching on the version), but accessing a
 value raises :class:`NotImplementedError` pointing at the parallel
-:attr:`Results.ephemeris_paths` / :attr:`Results.contact_paths` mappings, which
-hand back the raw :class:`pathlib.Path`.
+:attr:`Results.contact_paths` mapping, which hands back the raw
+:class:`pathlib.Path`.
 """
 
 from __future__ import annotations
@@ -36,6 +36,7 @@ from types import MappingProxyType
 
 import pandas as pd
 
+from gmat_run.parsers.ephemeris import parse as _parse_ephemeris
 from gmat_run.parsers.reportfile import parse as _parse_reportfile
 
 __all__ = ["Results"]
@@ -78,6 +79,41 @@ class _LazyReports(Mapping[str, pd.DataFrame]):
         # Replace the underlying path mapping in place. Already-cached
         # DataFrames are kept — they're independent of the on-disk files once
         # parsed.
+        self._paths = dict(paths)
+
+
+class _LazyEphemerides(Mapping[str, pd.DataFrame]):
+    """Mapping view over ``EphemerisFile`` outputs (CCSDS-OEM text format).
+
+    Mirrors :class:`_LazyReports` but dispatches to
+    :func:`gmat_run.parsers.ephemeris.parse`. Kept as a parallel class rather
+    than factored against a shared base because the codebase pattern is
+    explicit one-class-per-output-format dispatch.
+    """
+
+    def __init__(self, paths: Mapping[str, Path]) -> None:
+        self._paths: dict[str, Path] = dict(paths)
+        self._cache: dict[str, pd.DataFrame] = {}
+
+    def __getitem__(self, key: str) -> pd.DataFrame:
+        if key in self._cache:
+            return self._cache[key]
+        if key not in self._paths:
+            raise KeyError(key)
+        frame = _parse_ephemeris(self._paths[key])
+        self._cache[key] = frame
+        return frame
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._paths)
+
+    def __len__(self) -> int:
+        return len(self._paths)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._paths
+
+    def _rebase(self, paths: Mapping[str, Path]) -> None:
         self._paths = dict(paths)
 
 
@@ -183,12 +219,7 @@ class Results:
         self.reports = _LazyReports(report_paths or {})
         self.ephemeris_paths = MappingProxyType(eph_paths)
         self.contact_paths = MappingProxyType(con_paths)
-        self.ephemerides = _DeferredMapping(
-            eph_paths,
-            format_label=".eph ephemeris",
-            target_release="v0.2",
-            paths_attr="ephemeris_paths",
-        )
+        self.ephemerides = _LazyEphemerides(eph_paths)
         self.contacts = _DeferredMapping(
             con_paths,
             format_label="ContactLocator",
