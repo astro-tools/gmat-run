@@ -168,7 +168,33 @@ def test_unknown_report_key_raises(tmp_path: Path) -> None:
     assert excinfo.value.args == ("does_not_exist",)
 
 
-# --- ephemerides / contacts (v0.1 stub) --------------------------------------
+# --- ephemerides (lazy, v0.2) ------------------------------------------------
+
+
+_EPH_FILE = """\
+CCSDS_OEM_VERS = 1.0
+CREATION_DATE  = 2026-04-25T18:54:25
+ORIGINATOR     = GMAT USER
+
+META_START
+OBJECT_NAME          = Sat
+OBJECT_ID            = SatId
+CENTER_NAME          = Earth
+REF_FRAME            = EME2000
+TIME_SYSTEM          = UTC
+START_TIME           = 2026-01-01T12:00:00.000
+STOP_TIME            = 2026-01-01T12:00:00.000
+INTERPOLATION        = LAGRANGE
+INTERPOLATION_DEGREE = 4
+META_STOP
+
+2026-01-01T12:00:00.000  -5.936e+03   1.590e+03   3.336e+03  -1.955e+00  -7.296e+00   2.206e-16
+"""
+
+
+def _write_eph(path: Path) -> Path:
+    path.write_text(_EPH_FILE, encoding="utf-8")
+    return path
 
 
 def test_ephemeris_paths_round_trip(tmp_path: Path) -> None:
@@ -180,23 +206,29 @@ def test_ephemeris_paths_round_trip(tmp_path: Path) -> None:
     assert len(result.ephemerides) == 1
 
 
-def test_ephemeris_value_access_is_unimplemented(tmp_path: Path) -> None:
-    result = Results(
-        output_dir=tmp_path,
-        log="",
-        ephemeris_paths={"E1": tmp_path / "E1.eph"},
-    )
-    with pytest.raises(NotImplementedError) as excinfo:
-        _ = result.ephemerides["E1"]
-    message = str(excinfo.value)
-    assert ".eph" in message
-    assert "v0.2" in message
-    assert "ephemeris_paths" in message
-    assert "'E1'" in message
+def test_ephemeris_value_access_returns_dataframe(tmp_path: Path) -> None:
+    """``.ephemerides[k]`` lazily parses the ``.oem`` and returns a typed frame."""
+    path = _write_eph(tmp_path / "E1.oem")
+    result = Results(output_dir=tmp_path, log="", ephemeris_paths={"E1": path})
+    df = result.ephemerides["E1"]
+    assert isinstance(df, pd.DataFrame)
+    assert list(df.columns) == ["Epoch", "X", "Y", "Z", "VX", "VY", "VZ"]
+    assert df.attrs["coordinate_system"] == "EME2000"
+    assert df.attrs["epoch_scales"] == {"Epoch": "UTC"}
 
 
-def test_ephemerides_unknown_key_raises_keyerror_not_notimplemented(tmp_path: Path) -> None:
-    """Membership check must distinguish unknown keys from unimplemented values."""
+def test_ephemeris_lazy_parse_caches(tmp_path: Path) -> None:
+    """Once parsed, the DataFrame is independent of the source file."""
+    path = _write_eph(tmp_path / "E1.oem")
+    result = Results(output_dir=tmp_path, log="", ephemeris_paths={"E1": path})
+    df = result.ephemerides["E1"]
+    path.unlink()
+    again = result.ephemerides["E1"]
+    assert again is df
+
+
+def test_ephemerides_unknown_key_raises_keyerror(tmp_path: Path) -> None:
+    """Membership check distinguishes unknown keys from a real parse miss."""
     result = _empty(tmp_path)
     with pytest.raises(KeyError):
         _ = result.ephemerides["nope"]
