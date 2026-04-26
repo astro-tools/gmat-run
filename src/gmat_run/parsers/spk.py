@@ -127,14 +127,14 @@ def parse(
         Metadata surfaces on ``df.attrs``:
 
         * ``epoch_scales = {"Epoch": "UTC"}`` — see module docstring.
-        * ``time_scale = "TDB"`` — the kernel's native scale; the
-          ``Epoch`` column is converted from this to UTC.
+        * ``time_scale = "TDB"`` — the kernel's native scale; the ``Epoch``
+            column is converted from this to UTC.
         * ``target_body``, ``observer_body`` — common names where SPICE
-          can resolve them, otherwise the integer NAIF IDs as strings.
+            can resolve them, otherwise the integer NAIF IDs as strings.
         * ``coordinate_system`` — the segment's reference frame
-          (e.g. ``"J2000"``).
+            (e.g. ``"J2000"``).
         * ``coverage_start``, ``coverage_stop`` — UTC ``Timestamp``s
-          spanning the kernel's union coverage.
+            spanning the kernel's union coverage.
         * ``sampling_step`` — the value passed in (``None`` or float).
         * ``file_header = {"daf_id": "DAF/SPK", "internal_filename": "..."}``.
 

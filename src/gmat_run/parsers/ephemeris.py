@@ -103,14 +103,14 @@ def parse(path: str | os.PathLike[str]) -> pd.DataFrame:
         Metadata surfaces on ``df.attrs``:
 
         * ``df.attrs["epoch_scales"] = {"Epoch": time_scale}`` mirrors the
-          convention from :mod:`gmat_run.parsers.epoch`.
+            convention from :mod:`gmat_run.parsers.epoch`.
         * Flat keys (``object_name``, ``central_body``, ``coordinate_system``,
-          ``time_scale``, ``interpolation``, ``interpolation_degree``) are set
-          when every segment agrees.
+            ``time_scale``, ``interpolation``, ``interpolation_degree``) are
+            set when every segment agrees.
         * ``df.attrs["segments"]`` lists the full per-segment metadata dict
-          (only present when more than one segment was parsed).
+            (only present when more than one segment was parsed).
         * ``df.attrs["file_header"]`` carries the pre-segment header keys
-          (``CCSDS_OEM_VERS``, ``CREATION_DATE``, ``ORIGINATOR``).
+            (``CCSDS_OEM_VERS``, ``CREATION_DATE``, ``ORIGINATOR``).
 
     Raises:
         GmatOutputParseError: The file is empty, no ``META_START`` block was

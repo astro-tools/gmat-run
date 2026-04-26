@@ -128,25 +128,25 @@ def parse(path: str | os.PathLike[str]) -> pd.DataFrame:
         file's ``ATTITUDE_TYPE``:
 
         * ``QUATERNION`` → ``Epoch`` plus ``Q1``, ``Q2``, ``Q3``, ``Q4`` in
-          source order; ``df.attrs["quaternion_type"]`` (``"LAST"`` /
-          ``"FIRST"``) names the scalar component.
+            source order; ``df.attrs["quaternion_type"]`` (``"LAST"`` /
+            ``"FIRST"``) names the scalar component.
         * ``EULER_ANGLE`` → ``Epoch`` plus ``EulerAngle1``, ``EulerAngle2``,
-          ``EulerAngle3``; ``df.attrs["euler_rot_seq"]`` carries the rotation
-          sequence (``"321"`` etc.).
+            ``EulerAngle3``; ``df.attrs["euler_rot_seq"]`` carries the rotation
+            sequence (``"321"`` etc.).
 
         Common metadata surfaces on ``df.attrs``:
 
         * ``df.attrs["epoch_scales"] = {"Epoch": time_scale}`` mirrors the
-          convention from :mod:`gmat_run.parsers.epoch`.
+            convention from :mod:`gmat_run.parsers.epoch`.
         * Flat keys (``attitude_type``, ``object_name``, ``object_id``,
-          ``center_name``, ``ref_frame_a``, ``ref_frame_b``, ``attitude_dir``,
-          ``time_scale``, ``interpolation``, ``interpolation_degree``,
-          plus the type-specific ``quaternion_type`` / ``euler_rot_seq``)
-          are set when every segment agrees on them.
+            ``center_name``, ``ref_frame_a``, ``ref_frame_b``, ``attitude_dir``,
+            ``time_scale``, ``interpolation``, ``interpolation_degree``,
+            plus the type-specific ``quaternion_type`` / ``euler_rot_seq``)
+            are set when every segment agrees on them.
         * ``df.attrs["segments"]`` lists the full per-segment metadata dict
-          (only present when more than one segment was parsed).
+            (only present when more than one segment was parsed).
         * ``df.attrs["file_header"]`` carries the pre-segment header keys
-          (``CCSDS_AEM_VERS``, ``CREATION_DATE``, ``ORIGINATOR``).
+            (``CCSDS_AEM_VERS``, ``CREATION_DATE``, ``ORIGINATOR``).
 
     Raises:
         GmatOutputParseError: The file is empty, no ``META_START`` block was

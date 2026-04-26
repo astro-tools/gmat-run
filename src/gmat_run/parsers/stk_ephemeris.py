@@ -43,7 +43,7 @@ import pandas as pd
 
 from gmat_run.errors import GmatOutputParseError
 
-__all__ = ["parse"]
+__all__ = ["is_stk_ephemeris", "parse"]
 
 # GMAT's default ScenarioEpoch text shape, e.g. ``01 Jan 2000 11:59:28.000``.
 # ``%b`` is locale sensitive; this matches the C/en_US locale active on every
@@ -109,15 +109,15 @@ def parse(path: str | os.PathLike[str]) -> pd.DataFrame:
         Metadata surfaces on ``df.attrs``:
 
         * ``df.attrs["epoch_scales"] = {"Epoch": "UTC"}`` — see module
-          docstring for the UTC default rationale.
+            docstring for the UTC default rationale.
         * Flat keys (``central_body``, ``coordinate_system``,
-          ``interpolation``, ``interpolation_degree``, ``distance_unit``,
-          ``time_scale``) for whichever meta keys the file declared.
+            ``interpolation``, ``interpolation_degree``, ``distance_unit``,
+            ``time_scale``) for whichever meta keys the file declared.
         * ``df.attrs["scenario_epoch"]`` carries the raw ``ScenarioEpoch``
-          text so callers can re-interpret if their mission used a non-UTC
-          ``EpochFormat``.
+            text so callers can re-interpret if their mission used a non-UTC
+            ``EpochFormat``.
         * ``df.attrs["file_header"]`` carries the version banner and any
-          ``# WrittenBy …`` comment lines from above ``BEGIN Ephemeris``.
+            ``# WrittenBy …`` comment lines from above ``BEGIN Ephemeris``.
 
     Raises:
         GmatOutputParseError: The file is empty, missing a ``stk.v.X.Y``
