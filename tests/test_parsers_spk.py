@@ -153,9 +153,7 @@ def test_epoch_column_is_datetime64_ns() -> None:
 def test_native_mode_round_trips_circular_orbit_radius() -> None:
     """Synthetic orbit is at constant radius 6678 km in the equatorial plane."""
     df = parse(_FIXTURE)
-    radius = np.sqrt(
-        (df["X"] ** 2 + df["Y"] ** 2 + df["Z"] ** 2).to_numpy(dtype="float64")
-    )
+    radius = np.sqrt((df["X"] ** 2 + df["Y"] ** 2 + df["Z"] ** 2).to_numpy(dtype="float64"))
     assert radius[0] == pytest.approx(_FIXTURE_RADIUS_KM, rel=1e-9)
     assert radius[-1] == pytest.approx(_FIXTURE_RADIUS_KM, rel=1e-9)
     # Z and VZ are exactly zero in the equatorial test orbit.
