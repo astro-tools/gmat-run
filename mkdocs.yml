@@ -40,7 +40,14 @@ nav:
       - Load / run / plot: examples/01_load_run_plot.ipynb
       - Parameter sweep: examples/02_parameter_sweep.ipynb
       - Ground track: examples/03_ground_track.ipynb
-  - API reference: reference.md
+  - API reference:
+      - Mission: reference/mission.md
+      - Results: reference/results.md
+      - Install discovery: reference/install.md
+      - Runtime bootstrap: reference/runtime.md
+      - Exceptions: reference/errors.md
+      - Parsers: reference/parsers.md
+  - Known limitations: known-limitations.md
 
 plugins:
   - search
