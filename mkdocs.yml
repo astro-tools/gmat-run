@@ -35,6 +35,7 @@ nav:
   - Home: index.md
   - Getting started: getting-started.md
   - Install GMAT: install-gmat.md
+  - CLI usage: cli.md
   - API reference: reference.md
 
 plugins:

@@ -36,6 +36,9 @@ dependencies = [
 [project.optional-dependencies]
 astropy = ["astropy>=6.0"]
 
+[project.scripts]
+gmat-run = "gmat_run.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/astro-tools/gmat-run"
 Repository = "https://github.com/astro-tools/gmat-run"

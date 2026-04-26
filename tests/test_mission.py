@@ -12,6 +12,7 @@ without needing a real GMAT install.
 from __future__ import annotations
 
 import gc
+import os
 from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
@@ -794,8 +795,26 @@ class TestMissionRun:
     def test_run_redirects_log(self, tmp_path: Path) -> None:
         mission, gmat = _run_mission(tmp_path)
         result = mission.run()
-        # UseLogFile was pointed at GmatLog.txt inside the workspace.
-        assert gmat._log_paths == [str(result.output_dir / "GmatLog.txt")]
+        # UseLogFile is first pointed at GmatLog.txt inside the workspace,
+        # then repointed at os.devnull after RunScript so GMAT releases the
+        # workspace handle (otherwise persist/GC of the temp dir hits
+        # WinError 32 on Windows).
+        assert gmat._log_paths == [
+            str(result.output_dir / "GmatLog.txt"),
+            os.devnull,
+        ]
+
+    def test_run_releases_log_handle_on_engine_exception(self, tmp_path: Path) -> None:
+        # Even when RunScript raises, the log handle is repointed before the
+        # GmatRunError propagates — so the engine-error path doesn't keep the
+        # workspace locked either.
+        mission, gmat = _run_mission(
+            tmp_path,
+            run_script_raises=_FakeAPIException("integrator blew up"),
+        )
+        with pytest.raises(GmatRunError):
+            mission.run()
+        assert gmat._log_paths[-1] == os.devnull
 
     def test_run_preserves_absolute_filenames(self, tmp_path: Path) -> None:
         absolute = tmp_path / "elsewhere" / "report.txt"
