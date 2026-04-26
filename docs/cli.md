@@ -49,8 +49,7 @@ summary. Use the Python API if you need only the file paths.
 
 ## Exit codes
 
-Stable per the issue spec, so shell scripts can branch on failure mode without
-parsing stderr:
+Stable, so shell scripts can branch on failure mode without parsing stderr:
 
 | Code | Meaning |
 | --- | --- |

@@ -27,9 +27,9 @@ if TYPE_CHECKING:
 
 __all__ = ["main"]
 
-# Stable per the issue spec. The collision with argparse's own exit-2 (bad
-# CLI args) is intentional: both signal "couldn't get going" and the issue
-# pins GmatNotFoundError to 2.
+# Stable. The collision with argparse's own exit-2 (bad CLI args) is
+# accepted: both signal "couldn't get going" — shell scripts can disambiguate
+# from stderr if they care.
 EXIT_OK = 0
 EXIT_UNEXPECTED = 1
 EXIT_NOT_FOUND = 2
