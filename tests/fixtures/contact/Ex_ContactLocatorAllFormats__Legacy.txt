@@ -1,0 +1,33 @@
+Target: Sat
+
+Observer: AthGS
+Start Time (UTC)            Stop Time (UTC)               Duration (s)         
+09 Jan 2010 20:36:24.626    09 Jan 2010 23:05:18.684      8934.0587546    
+10 Jan 2010 04:31:56.141    10 Jan 2010 07:00:47.587      8931.4459472    
+10 Jan 2010 12:27:36.447    10 Jan 2010 14:56:27.413      8930.9662287    
+
+
+Number of events : 3
+
+
+Observer: HreGS
+Start Time (UTC)            Stop Time (UTC)               Duration (s)         
+09 Jan 2010 16:00:00.000    09 Jan 2010 16:50:53.222      3053.2220792    
+09 Jan 2010 22:51:34.076    10 Jan 2010 00:46:14.003      6879.9275636    
+10 Jan 2010 06:47:20.926    10 Jan 2010 08:41:58.629      6877.7032015    
+10 Jan 2010 14:42:43.682    10 Jan 2010 15:59:59.954      4636.2718436    
+
+
+Number of events : 4
+
+
+Observer: GSFC
+Start Time (UTC)            Stop Time (UTC)               Duration (s)         
+09 Jan 2010 20:48:25.040    09 Jan 2010 23:10:28.389      8523.3488576    
+10 Jan 2010 04:43:57.563    10 Jan 2010 07:05:56.531      8518.9679033    
+10 Jan 2010 12:39:39.031    10 Jan 2010 15:01:38.026      8518.9947168    
+
+
+Number of events : 3
+
+
