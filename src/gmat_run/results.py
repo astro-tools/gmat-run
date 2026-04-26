@@ -24,6 +24,7 @@ import os
 import shutil
 import tempfile
 from collections.abc import Iterator, Mapping
+from contextlib import suppress
 from pathlib import Path
 from types import MappingProxyType
 
@@ -273,6 +274,12 @@ class Results:
 
         self.output_dir = dest
         if self._workspace is not None:
-            self._workspace.cleanup()
+            # On Windows GMAT keeps a handle on GmatLog.txt past RunScript, so
+            # an immediate rmtree of the temp dir hits WinError 32. The
+            # artefacts have already been copied into ``dest``; drop the
+            # workspace handle so the finaliser retries at GC instead of
+            # surfacing here.
+            with suppress(OSError):
+                self._workspace.cleanup()
             self._workspace = None
         return self
