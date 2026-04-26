@@ -36,10 +36,15 @@ nav:
   - Getting started: getting-started.md
   - Install GMAT: install-gmat.md
   - CLI usage: cli.md
+  - Examples:
+      - Load / run / plot: examples/01_load_run_plot.ipynb
   - API reference: reference.md
 
 plugins:
   - search
+  - mkdocs-jupyter:
+      execute: false
+      include_source: true
   - mkdocstrings:
       default_handler: python
       handlers:

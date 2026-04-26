@@ -76,6 +76,10 @@ gmat-run run flyby.script --out results/
 See the [CLI reference](https://astro-tools.github.io/gmat-run/cli/) for flags, exit codes,
 and sample output.
 
+For a runnable walkthrough, see the [Load / run / plot example
+notebook](https://astro-tools.github.io/gmat-run/examples/01_load_run_plot/) — it loads a
+stock GMAT sample, runs it, and plots altitude over time end-to-end.
+
 ## Documentation
 
 Full docs at **<https://astro-tools.github.io/gmat-run/>**, including a
