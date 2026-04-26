@@ -62,6 +62,13 @@ pytestmark = pytest.mark.integration
 # whose epoch column came from the ephemeris writer (not the report writer).
 _ISO8601_FORMAT = "%Y-%m-%dT%H:%M:%S.%f"
 
+# ContactLocator parsers eagerly promote every time column to datetime64;
+# goldens carry them in the same Gregorian millisecond text the report writer
+# uses. Names match :mod:`gmat_run.parsers.contact`.
+_CONTACT_GREGORIAN_FORMAT = "%d %b %Y %H:%M:%S.%f"
+_CONTACT_TIME_COLUMNS = frozenset({"Start", "Stop", "Time", "MaxElevationTime"})
+_CONTACT_DURATION_COLUMN = "Duration"
+
 
 @dataclass(frozen=True)
 class Sample:
@@ -77,6 +84,10 @@ class Sample:
             CSV golden under ``tests/integration/golden/``.
         ephemerides: ``{ephemeris-resource-name: golden-file-stem}``. Same
             convention; epoch column is ISO-8601 in the golden.
+        contacts: ``{contact-resource-name: golden-file-stem}``. Each
+            golden carries the parsed ContactLocator DataFrame; time columns
+            are written as Gregorian millisecond text, ``Duration`` as float
+            seconds, ``Pass`` and ``Observer`` verbatim.
         rtol: Relative tolerance handed to ``assert_frame_equal``.
         atol: Absolute tolerance handed to ``assert_frame_equal``.
     """
@@ -84,6 +95,7 @@ class Sample:
     script_name: str
     reports: Mapping[str, str] = field(default_factory=dict)
     ephemerides: Mapping[str, str] = field(default_factory=dict)
+    contacts: Mapping[str, str] = field(default_factory=dict)
     script_root: Literal["install", "fixtures"] = "install"
     rtol: float = 1e-9
     atol: float = 1e-9
@@ -137,6 +149,30 @@ SAMPLES = [
         rtol=1e-6,
         atol=1e-6,
     ),
+    Sample(
+        # Six ContactLocators in one mission cover all six ReportFormat
+        # variants (Legacy + the five tabular formats). LegacyCL pins
+        # the per-observer-block parser; ContactRangeCL / MaxElevCL /
+        # MaxElevRangeCL pin the per-event tabular parsers; AzElRangeCL
+        # (ReportTimeFormat=ISOYD) and AzElRangeRRCL (ReportTimeFormat=UTCMJD)
+        # pin the per-(Pass, tick) grain plus the two non-Gregorian
+        # ReportTimeFormat axes. Tolerance matches the ephemeris cases:
+        # tight enough to flag a parser regression, loose enough to absorb
+        # the sub-millisecond MJD round-trip drift the comparator already
+        # truncates away.
+        script_name="Ex_ContactLocatorAllFormats.script",
+        script_root="fixtures",
+        contacts={
+            "LegacyCL": "Ex_ContactLocatorAllFormats__Legacy",
+            "ContactRangeCL": "Ex_ContactLocatorAllFormats__ContactRange",
+            "MaxElevCL": "Ex_ContactLocatorAllFormats__MaxElev",
+            "MaxElevRangeCL": "Ex_ContactLocatorAllFormats__MaxElevRange",
+            "AzElRangeCL": "Ex_ContactLocatorAllFormats__AzElRange",
+            "AzElRangeRRCL": "Ex_ContactLocatorAllFormats__AzElRangeRR",
+        },
+        rtol=1e-6,
+        atol=1e-6,
+    ),
 ]
 
 
@@ -161,13 +197,16 @@ def _run_sample(
     samples_dir: Path,
     fixtures_dir: Path,
     tmp_path: Path,
-) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+) -> tuple[
+    dict[str, pd.DataFrame],
+    dict[str, pd.DataFrame],
+    dict[str, pd.DataFrame],
+]:
     """Load and run a sample under an isolated workspace.
 
-    Returns ``({report-name: DataFrame}, {ephemeris-name: DataFrame})`` for
-    every output the sample asked for. Surfaces parse errors and run failures
-    as the underlying exception so pytest's traceback names the actual
-    culprit.
+    Returns ``(reports, ephemerides, contacts)`` for every output the sample
+    asked for. Surfaces parse errors and run failures as the underlying
+    exception so pytest's traceback names the actual culprit.
 
     Stock samples are loaded *in place* from ``samples/`` because they often
     carry relative-path references into the install's ``data/`` tree that
@@ -186,22 +225,42 @@ def _run_sample(
     result = mission.run(working_dir=tmp_path / "run")
     reports = {name: result.reports[name] for name in sample.reports}
     ephemerides = {name: result.ephemerides[name] for name in sample.ephemerides}
-    return reports, ephemerides
+    contacts = {name: result.contacts[name] for name in sample.contacts}
+    return reports, ephemerides, contacts
 
 
-def _read_golden(path: Path, *, epoch_format: Literal["report", "ephemeris"]) -> pd.DataFrame:
+def _read_golden(
+    path: Path, *, epoch_format: Literal["report", "ephemeris", "contact"]
+) -> pd.DataFrame:
     """Load a golden CSV and re-promote its epoch columns.
 
     ``report`` goldens use GMAT's printed Gregorian / ModJulian convention and
     delegate to :func:`gmat_run.parsers.epoch.promote_epochs` so the comparison
     matches what :meth:`Mission.run` returns. ``ephemeris`` goldens carry a
-    plain ISO-8601 ``Epoch`` column written by the ephemeris parser.
+    plain ISO-8601 ``Epoch`` column written by the ephemeris parser. ``contact``
+    goldens carry one or more named time columns plus a numeric ``Duration``
+    column written as float seconds.
     """
     df = pd.read_csv(path)
     if epoch_format == "report":
         return promote_epochs(df)
-    # CCSDS-OEM ephemerides: a single ``Epoch`` column in ISO-8601.
-    df["Epoch"] = pd.to_datetime(df["Epoch"], format=_ISO8601_FORMAT).astype("datetime64[ns]")
+    if epoch_format == "ephemeris":
+        # CCSDS-OEM ephemerides: a single ``Epoch`` column in ISO-8601.
+        df["Epoch"] = pd.to_datetime(df["Epoch"], format=_ISO8601_FORMAT).astype("datetime64[ns]")
+        return df
+    # ``contact``: time columns are Gregorian; Duration is seconds. The parser
+    # surfaces ``Observer`` as ``object`` (matching every other gmat-run
+    # frame); pandas 3.x ``read_csv`` infers string columns as ``str``, so
+    # downcast back to ``object`` here for dtype-strict compare.
+    for col in df.columns:
+        if col in _CONTACT_TIME_COLUMNS:
+            df[col] = pd.to_datetime(df[col], format=_CONTACT_GREGORIAN_FORMAT).astype(
+                "datetime64[ns]"
+            )
+        elif col == _CONTACT_DURATION_COLUMN:
+            df[col] = pd.to_timedelta(df[col], unit="s").astype("timedelta64[ns]")
+        elif df[col].dtype.name == "str":
+            df[col] = df[col].astype("object")
     return df
 
 
@@ -211,6 +270,10 @@ def _truncate_datetime_to_ms(df: pd.DataFrame) -> pd.DataFrame:
     Goldens round-trip through millisecond-precision text on serialise; the
     actual frame must match that resolution before :func:`assert_frame_equal`
     can compare them with strict dtype checks.
+
+    Timedelta columns are NOT truncated — the contact-format goldens write
+    duration as float seconds via ``dt.total_seconds()`` and ``%.15g``, which
+    is round-trip-symmetric back through ``pd.to_timedelta(unit='s')``.
     """
     out: pd.DataFrame = df.copy()
     for col in out.columns:
@@ -220,16 +283,29 @@ def _truncate_datetime_to_ms(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _write_golden(
-    df: pd.DataFrame, path: Path, *, epoch_format: Literal["report", "ephemeris"]
+    df: pd.DataFrame,
+    path: Path,
+    *,
+    epoch_format: Literal["report", "ephemeris", "contact"],
 ) -> None:
     """Serialise ``df`` to a golden CSV. Epoch text shape mirrors the source."""
     out = df.copy()
-    fmt = "%d %b %Y %H:%M:%S.%f" if epoch_format == "report" else _ISO8601_FORMAT
+    fmt = (
+        _CONTACT_GREGORIAN_FORMAT
+        if epoch_format == "contact"
+        else "%d %b %Y %H:%M:%S.%f"
+        if epoch_format == "report"
+        else _ISO8601_FORMAT
+    )
     for col in out.columns:
         if pd.api.types.is_datetime64_any_dtype(out[col]):
             # Strip the trailing three microsecond digits so the printed
             # text matches GMAT's millisecond-precision emitter exactly.
             out[col] = out[col].dt.strftime(fmt).str.slice(stop=-3)
+        elif pd.api.types.is_timedelta64_dtype(out[col]):
+            # Goldens carry duration as float seconds — round-trips through
+            # CSV without dragging a pandas-specific repr in.
+            out[col] = out[col].dt.total_seconds()
     path.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(path, index=False, float_format="%.15g")
 
@@ -243,7 +319,9 @@ def test_sample_round_trip(
     tmp_path: Path,
     regenerate_golden: bool,
 ) -> None:
-    actual_reports, actual_eph = _run_sample(sample, samples_dir, fixtures_dir, tmp_path)
+    actual_reports, actual_eph, actual_contacts = _run_sample(
+        sample, samples_dir, fixtures_dir, tmp_path
+    )
     assert set(actual_reports) == set(sample.reports), (
         f"GMAT wrote reports {sorted(actual_reports)} "
         f"but the test expected {sorted(sample.reports)}"
@@ -252,13 +330,19 @@ def test_sample_round_trip(
         f"GMAT wrote ephemerides {sorted(actual_eph)} "
         f"but the test expected {sorted(sample.ephemerides)}"
     )
+    assert set(actual_contacts) == set(sample.contacts), (
+        f"GMAT wrote contacts {sorted(actual_contacts)} "
+        f"but the test expected {sorted(sample.contacts)}"
+    )
 
     regenerated: list[Path] = []
-    cases: list[tuple[pd.DataFrame, str, Literal["report", "ephemeris"]]] = []
+    cases: list[tuple[pd.DataFrame, str, Literal["report", "ephemeris", "contact"]]] = []
     for name, stem in sample.reports.items():
         cases.append((actual_reports[name], stem, "report"))
     for name, stem in sample.ephemerides.items():
         cases.append((actual_eph[name], stem, "ephemeris"))
+    for name, stem in sample.contacts.items():
+        cases.append((actual_contacts[name], stem, "contact"))
 
     for df, stem, epoch_format in cases:
         golden_path = golden_dir / f"{stem}.csv"

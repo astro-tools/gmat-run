@@ -16,13 +16,6 @@ When :meth:`Mission.run` was called without a ``working_dir``, the artefacts
 live under a :class:`tempfile.TemporaryDirectory` that is cleaned up when this
 :class:`Results` is garbage-collected. Call :meth:`Results.persist` to copy
 the artefacts to a permanent location before the temp dir disappears.
-
-The ``ContactLocator`` parser is scheduled for a later release. For now the
-:attr:`Results.contacts` mapping still exposes its keys (so callers can
-discover what GMAT wrote without branching on the version), but accessing a
-value raises :class:`NotImplementedError` pointing at the parallel
-:attr:`Results.contact_paths` mapping, which hands back the raw
-:class:`pathlib.Path`.
 """
 
 from __future__ import annotations
@@ -36,6 +29,7 @@ from types import MappingProxyType
 
 import pandas as pd
 
+from gmat_run.parsers.contact import parse as _parse_contact
 from gmat_run.parsers.ephemeris import parse as _parse_oem_ephemeris
 from gmat_run.parsers.reportfile import parse as _parse_reportfile
 from gmat_run.parsers.stk_ephemeris import is_stk_ephemeris as _is_stk_ephemeris
@@ -126,36 +120,31 @@ class _LazyEphemerides(Mapping[str, pd.DataFrame]):
         self._paths = dict(paths)
 
 
-class _DeferredMapping(Mapping[str, pd.DataFrame]):
-    """Mapping view whose keys are populated but value access is unimplemented.
+class _LazyContacts(Mapping[str, pd.DataFrame]):
+    """Mapping view over ``ContactLocator`` outputs.
 
-    Used for output formats whose parsers are scheduled for a later release:
-    the keys reflect what GMAT wrote so callers can iterate, ``len``, and
-    membership-test as normal, but ``__getitem__`` raises
-    :class:`NotImplementedError` directing the caller at the parallel
-    ``*_paths`` mapping for the raw file path.
+    Mirrors :class:`_LazyReports`: the parser runs once per key on first
+    ``__getitem__``, the resulting DataFrame is cached, and subsequent accesses
+    return the same object. Membership and iteration do not parse.
+
+    The DataFrame's columns vary with the resource's
+    ``ContactLocator.ReportFormat`` (Legacy vs. one of the five tabular
+    variants); ``df.attrs["report_format"]`` carries the variant name so
+    downstream code can branch without inspecting the column set.
     """
 
-    def __init__(
-        self,
-        paths: Mapping[str, Path],
-        *,
-        format_label: str,
-        target_release: str,
-        paths_attr: str,
-    ) -> None:
+    def __init__(self, paths: Mapping[str, Path]) -> None:
         self._paths: dict[str, Path] = dict(paths)
-        self._format_label = format_label
-        self._target_release = target_release
-        self._paths_attr = paths_attr
+        self._cache: dict[str, pd.DataFrame] = {}
 
     def __getitem__(self, key: str) -> pd.DataFrame:
+        if key in self._cache:
+            return self._cache[key]
         if key not in self._paths:
             raise KeyError(key)
-        raise NotImplementedError(
-            f"{self._format_label} parsing lands in {self._target_release}; "
-            f"use Results.{self._paths_attr}[{key!r}] for the file path"
-        )
+        frame = _parse_contact(self._paths[key])
+        self._cache[key] = frame
+        return frame
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._paths)
@@ -164,8 +153,6 @@ class _DeferredMapping(Mapping[str, pd.DataFrame]):
         return len(self._paths)
 
     def __contains__(self, key: object) -> bool:
-        # Override the Mapping default — it calls __getitem__ and would raise
-        # NotImplementedError for known keys.
         return key in self._paths
 
     def _rebase(self, paths: Mapping[str, Path]) -> None:
@@ -229,12 +216,7 @@ class Results:
         self.ephemeris_paths = MappingProxyType(eph_paths)
         self.contact_paths = MappingProxyType(con_paths)
         self.ephemerides = _LazyEphemerides(eph_paths)
-        self.contacts = _DeferredMapping(
-            con_paths,
-            format_label="ContactLocator",
-            target_release="v0.2",
-            paths_attr="contact_paths",
-        )
+        self.contacts = _LazyContacts(con_paths)
 
     def persist(self, path: str | os.PathLike[str]) -> Results:
         """Copy every output artefact under :attr:`output_dir` into ``path``.

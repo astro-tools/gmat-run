@@ -295,22 +295,60 @@ def test_contact_paths_round_trip(tmp_path: Path) -> None:
     assert len(result.contacts) == 1
 
 
-def test_contact_value_access_is_unimplemented(tmp_path: Path) -> None:
+_CONTACT_LEGACY_FILE = """\
+Target: Sat
+
+Observer: AthGS
+Start Time (UTC)            Stop Time (UTC)               Duration (s)
+09 Jan 2010 20:36:24.626    09 Jan 2010 23:05:18.684      8934.0587546
+
+
+Number of events : 1
+
+
+"""
+
+
+def _write_contact(path: Path) -> Path:
+    path.write_text(_CONTACT_LEGACY_FILE, encoding="utf-8")
+    return path
+
+
+def test_contact_value_access_returns_dataframe(tmp_path: Path) -> None:
+    """``.contacts[k]`` lazily parses the report and returns a typed frame."""
+    path = _write_contact(tmp_path / "C1.txt")
+    result = Results(output_dir=tmp_path, log="", contact_paths={"C1": path})
+    df = result.contacts["C1"]
+    assert isinstance(df, pd.DataFrame)
+    assert list(df.columns) == ["Observer", "Start", "Stop", "Duration"]
+    assert df.attrs["report_format"] == "Legacy"
+    assert df.attrs["target"] == "Sat"
+
+
+def test_contact_lazy_parse_caches(tmp_path: Path) -> None:
+    """Once parsed, the DataFrame is independent of the source file."""
+    path = _write_contact(tmp_path / "C1.txt")
+    result = Results(output_dir=tmp_path, log="", contact_paths={"C1": path})
+    df = result.contacts["C1"]
+    path.unlink()
+    again = result.contacts["C1"]
+    assert again is df
+
+
+def test_contact_construction_does_not_read_files(tmp_path: Path) -> None:
+    """Pointing at a non-existent path must not raise — the parser is lazy."""
     result = Results(
         output_dir=tmp_path,
         log="",
-        contact_paths={"C1": tmp_path / "C1.txt"},
+        contact_paths={"C1": tmp_path / "never_written.txt"},
     )
-    with pytest.raises(NotImplementedError) as excinfo:
-        _ = result.contacts["C1"]
-    message = str(excinfo.value)
-    assert "ContactLocator" in message
-    assert "v0.2" in message
-    assert "contact_paths" in message
-    assert "'C1'" in message
+    assert "C1" in result.contacts
+    assert list(result.contacts) == ["C1"]
+    assert len(result.contacts) == 1
 
 
-def test_contacts_unknown_key_raises_keyerror_not_notimplemented(tmp_path: Path) -> None:
+def test_contacts_unknown_key_raises_keyerror(tmp_path: Path) -> None:
+    """Membership check distinguishes unknown keys from a real parse miss."""
     result = _empty(tmp_path)
     with pytest.raises(KeyError):
         _ = result.contacts["nope"]
