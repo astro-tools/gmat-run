@@ -36,8 +36,10 @@ from types import MappingProxyType
 
 import pandas as pd
 
-from gmat_run.parsers.ephemeris import parse as _parse_ephemeris
+from gmat_run.parsers.ephemeris import parse as _parse_oem_ephemeris
 from gmat_run.parsers.reportfile import parse as _parse_reportfile
+from gmat_run.parsers.stk_ephemeris import is_stk_ephemeris as _is_stk_ephemeris
+from gmat_run.parsers.stk_ephemeris import parse as _parse_stk_ephemeris
 
 __all__ = ["Results"]
 
@@ -83,12 +85,17 @@ class _LazyReports(Mapping[str, pd.DataFrame]):
 
 
 class _LazyEphemerides(Mapping[str, pd.DataFrame]):
-    """Mapping view over ``EphemerisFile`` outputs (CCSDS-OEM text format).
+    """Mapping view over ``EphemerisFile`` outputs.
 
-    Mirrors :class:`_LazyReports` but dispatches to
-    :func:`gmat_run.parsers.ephemeris.parse`. Kept as a parallel class rather
-    than factored against a shared base because the codebase pattern is
-    explicit one-class-per-output-format dispatch.
+    Mirrors :class:`_LazyReports` but dispatches between GMAT's two text
+    ephemeris formats — CCSDS-OEM and STK-TimePosVel — by sniffing the file's
+    first content line. The format choice is per-file rather than per-mapping
+    because nothing stops a single ``Mission.run`` from declaring two
+    ``EphemerisFile`` resources with different ``FileFormat`` settings.
+
+    Kept as a parallel class rather than factored against a shared base
+    because the codebase pattern is explicit one-class-per-output-format
+    dispatch.
     """
 
     def __init__(self, paths: Mapping[str, Path]) -> None:
@@ -100,7 +107,9 @@ class _LazyEphemerides(Mapping[str, pd.DataFrame]):
             return self._cache[key]
         if key not in self._paths:
             raise KeyError(key)
-        frame = _parse_ephemeris(self._paths[key])
+        path = self._paths[key]
+        parser = _parse_stk_ephemeris if _is_stk_ephemeris(path) else _parse_oem_ephemeris
+        frame = parser(path)
         self._cache[key] = frame
         return frame
 
