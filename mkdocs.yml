@@ -38,6 +38,7 @@ nav:
   - CLI usage: cli.md
   - Examples:
       - Load / run / plot: examples/01_load_run_plot.ipynb
+      - Parameter sweep: examples/02_parameter_sweep.ipynb
   - API reference: reference.md
 
 plugins:

@@ -165,6 +165,23 @@ class Mission:
                 f"GMAT could not parse '{script_path}'; "
                 "check the GMAT log file for the underlying error"
             )
+        # Resolve every loaded Spacecraft against itself so that pre-run field
+        # writes (e.g. ``mission["Sat.SMA"] = 7100``) see a fully-coupled state.
+        # Without this, GMAT's setter validator runs against an unresolved
+        # internal Cartesian state and rejects otherwise-valid Keplerian writes
+        # with a bogus "ECC > 1" error. The sandbox-wide ``gmat.Initialize()``
+        # would also work but breaks scripts with EventLocator resources
+        # (Ex_ContactLocatorAllFormats: a second pre-run init flips
+        # ``RunScript`` to a failure status), so target Spacecraft only.
+        # ``RunScript`` re-initialises internally, so this only enables the
+        # pre-run write path; it does not change run-time semantics.
+        api_exception = _get_api_exception(gmat)
+        try:
+            _initialize_spacecraft(gmat)
+        except api_exception as exc:
+            raise GmatLoadError(
+                f"GMAT raised {type(exc).__name__} initialising '{script_path}': {exc}"
+            ) from exc
         return cls(gmat=gmat, install=install, script_path=script_path)
 
     @property
@@ -678,6 +695,35 @@ def _safe_read(path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
+
+
+def _initialize_spacecraft(gmat: ModuleType) -> None:
+    """Call ``Initialize`` on every Spacecraft loaded into the sandbox.
+
+    Walks the Spacecraft registry via ``Moderator.GetListOfObjects`` keyed by
+    the ``SPACECRAFT`` enum and invokes ``Initialize`` on each handle that
+    exposes one. Missing enums, missing moderator, or objects without
+    ``Initialize`` are tolerated silently — fakes vary, and the only callers
+    that need this method to succeed are the Keplerian-field-write tests on
+    real GMAT, which always have all three.
+    """
+    type_id = getattr(gmat, _SPACECRAFT_TYPE_ENUM_ATTR, None)
+    if type_id is None:
+        return
+    moderator_proxy = getattr(gmat, "Moderator", None)
+    if moderator_proxy is None:
+        return
+    moderator = moderator_proxy.Instance()
+    try:
+        names = list(moderator.GetListOfObjects(type_id))
+    except Exception:
+        return
+    for name in names:
+        obj = gmat.GetObject(name)
+        init = getattr(obj, "Initialize", None) if obj is not None else None
+        if init is None:
+            continue
+        init()
 
 
 def _get_api_exception(gmat: ModuleType) -> type[BaseException]:
