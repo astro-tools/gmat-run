@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ['3.10', '3.11', '3.12']
     steps:
       - uses: actions/checkout@v4
@@ -101,6 +101,40 @@ jobs:
           Move-Item -Path $gmatRoot -Destination (Join-Path $env:RUNNER_TEMP 'gmat')
           Remove-Item gmat.zip
           Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+
+      - name: Download and extract GMAT (macOS)
+        if: runner.os == 'macOS' && steps.cache-gmat.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://sourceforge.net/projects/gmat/files/GMAT/GMAT-${GMAT_VERSION}/gmat-mac-x64-${GMAT_VERSION}-signed.dmg/download"
+          # --retry-all-errors covers mid-stream connection drops from slow SourceForge mirrors
+          # (plain --retry only retries on initial connection failures).
+          curl -fL --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 \
+            -o gmat.dmg "$url"
+          # The R2026a macOS DMG is ~455 MB; threshold is conservatively 400 MB.
+          size=$(stat -f%z gmat.dmg)
+          echo "Downloaded gmat.dmg size: $size bytes"
+          if [ "$size" -lt 419430400 ]; then
+            echo "::error::Downloaded archive looks truncated ($size bytes); aborting"
+            exit 1
+          fi
+          mount_point="${RUNNER_TEMP}/gmat-dmg"
+          # -nobrowse keeps the volume out of Finder; </dev/null guards against any
+          # interactive SLA prompt blocking the runner.
+          hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mount_point" gmat.dmg < /dev/null
+          api_script=$(find "$mount_point" -name BuildApiStartupFile.py -print -quit)
+          if [ -z "$api_script" ]; then
+            echo "::error::Could not locate BuildApiStartupFile.py in mounted DMG"
+            find "$mount_point" -maxdepth 3 -type d
+            hdiutil detach "$mount_point" || true
+            exit 1
+          fi
+          gmat_root=$(dirname "$(dirname "$api_script")")
+          # cp -R because mv across the DMG mount boundary would fail (read-only volume).
+          cp -R "$gmat_root" "${RUNNER_TEMP}/gmat"
+          hdiutil detach "$mount_point"
+          rm gmat.dmg
 
       - name: Resolve GMAT_ROOT
         shell: bash
