@@ -149,14 +149,17 @@ class _FakeObject:
 # ``Moderator.GetListOfObjects`` uses as bucket IDs. The real gmat module
 # defines these as opaque ints from the C++ engine; the production code reads
 # them via ``getattr(self._gmat, "SUBSCRIBER", None)`` so any unique values work.
-_OBJECT_TYPE_IDS = {"SUBSCRIBER": 100, "EVENT_LOCATOR": 200}
+_OBJECT_TYPE_IDS = {"SUBSCRIBER": 100, "EVENT_LOCATOR": 200, "SPACECRAFT": 300}
 
-# Which object-type bucket each subscriber-like type lives in. ReportFile and
-# EphemerisFile are Subscribers; ContactLocator is an EventLocator.
+# Which object-type bucket each top-level type lives in. ReportFile and
+# EphemerisFile are Subscribers; ContactLocator is an EventLocator; Spacecraft
+# resources land in the dedicated SPACECRAFT bucket that
+# Mission.attitude_inputs probes.
 _OBJECT_TYPE_OF_CLASS = {
     "ReportFile": "SUBSCRIBER",
     "EphemerisFile": "SUBSCRIBER",
     "ContactLocator": "EVENT_LOCATOR",
+    "Spacecraft": "SPACECRAFT",
 }
 
 
@@ -299,6 +302,15 @@ def _ephemeris_file(name: str = "EphFile1", filename: str = "eph1.eph") -> _Fake
         "Filename": (_TYPE_CODES["FILENAME_TYPE"], filename, False),
     }
     return _FakeObject("EphemerisFile", name, fields)
+
+
+def _aem_spacecraft(name: str = "Sat", filename: str = "attitude.aem") -> _FakeObject:
+    """Spacecraft configured with ``Attitude = CCSDS-AEM`` for attitude_inputs."""
+    fields: dict[str, tuple[int, Any, bool]] = {
+        "Attitude": (_TYPE_CODES["ENUMERATION_TYPE"], "CCSDS-AEM", False),
+        "AttitudeFileName": (_TYPE_CODES["FILENAME_TYPE"], filename, False),
+    }
+    return _FakeObject("Spacecraft", name, fields)
 
 
 def _contact_locator(name: str = "Contacts", filename: str = "contacts.txt") -> _FakeObject:
@@ -901,3 +913,188 @@ class TestMissionRun:
         # errors propagate.
         with pytest.raises(RuntimeError):
             mission.run()
+
+
+# --- Mission.attitude_inputs --------------------------------------------------
+
+
+_AEM_QUAT_FIXTURE = """\
+CCSDS_AEM_VERS = 1.0
+CREATION_DATE  = 2026-04-25T18:54:25
+ORIGINATOR     = GMAT USER
+
+META_START
+OBJECT_NAME          = Sat
+CENTER_NAME          = Earth
+REF_FRAME_A          = EME2000
+REF_FRAME_B          = SC_BODY_1
+ATTITUDE_DIR         = A2B
+TIME_SYSTEM          = UTC
+START_TIME           = 2026-01-01T12:00:00.000
+STOP_TIME            = 2026-01-01T12:00:01.000
+ATTITUDE_TYPE        = QUATERNION
+QUATERNION_TYPE      = LAST
+INTERPOLATION_METHOD = Linear
+INTERPOLATION_DEGREE = 7
+META_STOP
+
+DATA_START
+2026-01-01T12:00:00.000 0.1 0.2 0.3 0.927361
+2026-01-01T12:00:01.000 0.11 0.21 0.31 0.920472
+DATA_STOP
+"""
+
+
+def _make_mission_with_attitude(
+    tmp_path: Path,
+    objects: dict[str, _FakeObject],
+    *,
+    script_dir: Path | None = None,
+) -> Mission:
+    """Build a Mission whose script_path lives under ``script_dir``.
+
+    ``script_dir`` defaults to ``tmp_path / "scripts"``; the path is created
+    on demand so AttitudeFileName resolution against ``script_path.parent``
+    finds a real directory.
+    """
+    script_dir = script_dir or (tmp_path / "scripts")
+    script_dir.mkdir(parents=True, exist_ok=True)
+    gmat = _make_fake_gmat(objects)
+    install = _make_install(tmp_path / "gmat")
+    return Mission(gmat=gmat, install=install, script_path=script_dir / "mission.script")
+
+
+class TestAttitudeInputs:
+    """``Mission.attitude_inputs`` discovers Spacecraft.AttitudeFileName entries."""
+
+    def test_discovers_aem_spacecraft(self, tmp_path: Path) -> None:
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        aem = scripts / "att.aem"
+        aem.write_text(_AEM_QUAT_FIXTURE, encoding="utf-8")
+        mission = _make_mission_with_attitude(
+            tmp_path,
+            {"Sat": _aem_spacecraft("Sat", "att.aem")},
+            script_dir=scripts,
+        )
+        assert list(mission.attitude_input_paths) == ["Sat"]
+        assert mission.attitude_input_paths["Sat"] == aem.resolve()
+
+    def test_parses_aem_on_access(self, tmp_path: Path) -> None:
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        (scripts / "att.aem").write_text(_AEM_QUAT_FIXTURE, encoding="utf-8")
+        mission = _make_mission_with_attitude(
+            tmp_path,
+            {"Sat": _aem_spacecraft("Sat", "att.aem")},
+            script_dir=scripts,
+        )
+        df = mission.attitude_inputs["Sat"]
+        assert list(df.columns) == ["Epoch", "Q1", "Q2", "Q3", "Q4"]
+        assert df.attrs["attitude_type"] == "QUATERNION"
+        assert len(df) == 2
+
+    def test_caches_parse_result(self, tmp_path: Path) -> None:
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        aem = scripts / "att.aem"
+        aem.write_text(_AEM_QUAT_FIXTURE, encoding="utf-8")
+        mission = _make_mission_with_attitude(
+            tmp_path,
+            {"Sat": _aem_spacecraft("Sat", "att.aem")},
+            script_dir=scripts,
+        )
+        first = mission.attitude_inputs["Sat"]
+        # Mutate the file on disk; the cached frame must not change.
+        aem.write_text("garbage that would fail to parse", encoding="utf-8")
+        second = mission.attitude_inputs["Sat"]
+        assert first is second
+
+    def test_absolute_path_kept_as_is(self, tmp_path: Path) -> None:
+        elsewhere = tmp_path / "elsewhere" / "abs.aem"
+        elsewhere.parent.mkdir(parents=True)
+        elsewhere.write_text(_AEM_QUAT_FIXTURE, encoding="utf-8")
+        mission = _make_mission_with_attitude(
+            tmp_path,
+            {"Sat": _aem_spacecraft("Sat", str(elsewhere))},
+        )
+        assert mission.attitude_input_paths["Sat"] == elsewhere
+
+    def test_skips_spacecraft_with_other_attitude_model(self, tmp_path: Path) -> None:
+        sc = _aem_spacecraft("Sat", "att.aem")
+        sc.SetField("Attitude", "CoordinateSystemFixed")
+        mission = _make_mission_with_attitude(tmp_path, {"Sat": sc})
+        assert dict(mission.attitude_input_paths) == {}
+        assert dict(mission.attitude_inputs) == {}
+
+    def test_skips_spacecraft_without_attitude_field(self, tmp_path: Path) -> None:
+        # The default _spacecraft() factory has no Attitude/AttitudeFileName;
+        # discovery must skip silently rather than raising.
+        mission = _make_mission_with_attitude(tmp_path, {"Sat": _spacecraft("Sat")})
+        assert dict(mission.attitude_input_paths) == {}
+
+    def test_empty_filename_skipped(self, tmp_path: Path) -> None:
+        sc = _aem_spacecraft("Sat", "")
+        mission = _make_mission_with_attitude(tmp_path, {"Sat": sc})
+        assert dict(mission.attitude_input_paths) == {}
+
+    def test_multiple_aem_spacecraft(self, tmp_path: Path) -> None:
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        for name in ("a.aem", "b.aem"):
+            (scripts / name).write_text(_AEM_QUAT_FIXTURE, encoding="utf-8")
+        mission = _make_mission_with_attitude(
+            tmp_path,
+            {
+                "SatA": _aem_spacecraft("SatA", "a.aem"),
+                "SatB": _aem_spacecraft("SatB", "b.aem"),
+            },
+            script_dir=scripts,
+        )
+        assert sorted(mission.attitude_input_paths) == ["SatA", "SatB"]
+        # Lazy: iterating doesn't parse — but explicit access does.
+        df_a = mission.attitude_inputs["SatA"]
+        assert df_a.attrs["attitude_type"] == "QUATERNION"
+
+    def test_no_spacecraft_enum_yields_empty(self, tmp_path: Path) -> None:
+        # A gmat module that doesn't expose SPACECRAFT (older release / fake
+        # without the enum) silently yields no attitude inputs.
+        mission = _make_mission_with_attitude(tmp_path, {"Sat": _aem_spacecraft("Sat", "att.aem")})
+        delattr(mission.gmat, "SPACECRAFT")
+        assert dict(mission.attitude_input_paths) == {}
+
+    def test_unknown_key_raises_keyerror(self, tmp_path: Path) -> None:
+        mission = _make_mission_with_attitude(tmp_path, {})
+        with pytest.raises(KeyError):
+            mission.attitude_inputs["Nope"]
+
+    def test_returns_read_only_view(self, tmp_path: Path) -> None:
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        (scripts / "att.aem").write_text(_AEM_QUAT_FIXTURE, encoding="utf-8")
+        mission = _make_mission_with_attitude(
+            tmp_path,
+            {"Sat": _aem_spacecraft("Sat", "att.aem")},
+            script_dir=scripts,
+        )
+        view = mission.attitude_input_paths
+        with pytest.raises(TypeError):
+            view["Inject"] = Path("/tmp/x.aem")  # type: ignore[index]
+
+    def test_discovery_cached_across_accesses(self, tmp_path: Path) -> None:
+        # Caching matters for tests that mutate the registry post-load — the
+        # first property access pins the snapshot, later mutations are not
+        # reflected. This is documented behaviour, not a bug.
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        (scripts / "att.aem").write_text(_AEM_QUAT_FIXTURE, encoding="utf-8")
+        mission = _make_mission_with_attitude(
+            tmp_path,
+            {"Sat": _aem_spacecraft("Sat", "att.aem")},
+            script_dir=scripts,
+        )
+        first = dict(mission.attitude_input_paths)
+        # Drop the spacecraft from the registry; cached snapshot stays.
+        mission.gmat._registry.clear()
+        second = dict(mission.attitude_input_paths)
+        assert first == second

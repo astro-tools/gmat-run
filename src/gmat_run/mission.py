@@ -23,13 +23,17 @@ from __future__ import annotations
 import difflib
 import os
 import tempfile
+from collections.abc import Iterator, Mapping
 from contextlib import suppress
 from pathlib import Path
-from types import ModuleType
+from types import MappingProxyType, ModuleType
 from typing import Any, Final
+
+import pandas as pd
 
 from gmat_run.errors import GmatFieldError, GmatLoadError, GmatRunError
 from gmat_run.install import GmatInstall, locate_gmat
+from gmat_run.parsers.aem_ephemeris import parse as _parse_aem_ephemeris
 from gmat_run.results import Results
 from gmat_run.runtime import bootstrap
 
@@ -54,6 +58,49 @@ _OUTPUT_TYPE_ENUM_ATTRS: Final = ("SUBSCRIBER", "EVENT_LOCATOR")
 # .claude/skills/gmat-python/references/commands.md for the table).
 _RUNSCRIPT_OK: Final = 1
 
+# Spacecraft.Attitude value that selects the CCSDS-AEM reader path. Per the
+# EphemerisFile / Attitude docs in GMAT R2026a, this is the only attitude
+# model that consumes an external file via Spacecraft.AttitudeFileName.
+_AEM_ATTITUDE_VALUE: Final = "CCSDS-AEM"
+
+# Object-type-enum attribute Mission.attitude_inputs probes to enumerate
+# Spacecraft. Defensive ``getattr`` lookup mirrors _OUTPUT_TYPE_ENUM_ATTRS so
+# a fake gmat module without this enum simply yields zero attitude inputs
+# instead of crashing.
+_SPACECRAFT_TYPE_ENUM_ATTR: Final = "SPACECRAFT"
+
+
+class _LazyAttitudeInputs(Mapping[str, pd.DataFrame]):
+    """Mapping view over CCSDS-AEM files referenced by Spacecraft resources.
+
+    Mirrors the lazy pattern of :class:`gmat_run.results._LazyEphemerides`:
+    parses each file on first access via
+    :func:`gmat_run.parsers.aem_ephemeris.parse` and caches the resulting
+    DataFrame. Construction is cheap — the underlying paths are not opened.
+    """
+
+    def __init__(self, paths: Mapping[str, Path]) -> None:
+        self._paths: dict[str, Path] = dict(paths)
+        self._cache: dict[str, pd.DataFrame] = {}
+
+    def __getitem__(self, key: str) -> pd.DataFrame:
+        if key in self._cache:
+            return self._cache[key]
+        if key not in self._paths:
+            raise KeyError(key)
+        frame = _parse_aem_ephemeris(self._paths[key])
+        self._cache[key] = frame
+        return frame
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._paths)
+
+    def __len__(self) -> int:
+        return len(self._paths)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._paths
+
 
 class Mission:
     """A loaded GMAT ``.script`` with dotted-path field access.
@@ -68,6 +115,8 @@ class Mission:
 
     _gmat: ModuleType
     _type_map: dict[int, str]
+    _attitude_input_paths: dict[str, Path] | None
+    _attitude_inputs: _LazyAttitudeInputs | None
 
     def __init__(
         self,
@@ -80,6 +129,13 @@ class Mission:
         self.install = install
         self.script_path = script_path
         self._type_map = _build_type_map(gmat)
+        # attitude_inputs discovery is lazy — run once on first property access
+        # and cached. Re-walking the Spacecraft registry per access would
+        # silently mask script edits that happened after load, but the
+        # ``Mission`` contract is "view of the loaded script", so a one-shot
+        # snapshot at first access matches the rest of the surface.
+        self._attitude_input_paths = None
+        self._attitude_inputs = None
 
     @classmethod
     def load(
@@ -110,6 +166,44 @@ class Mission:
                 "check the GMAT log file for the underlying error"
             )
         return cls(gmat=gmat, install=install, script_path=script_path)
+
+    @property
+    def attitude_input_paths(self) -> Mapping[str, Path]:
+        """Resolved paths of every CCSDS-AEM file consumed by the loaded script.
+
+        Walks every Spacecraft resource on first access; selects those with
+        ``Attitude == "CCSDS-AEM"``; reads ``AttitudeFileName`` and resolves
+        relative paths against :attr:`script_path`'s parent directory (the
+        same convention GMAT itself uses, since ``LoadScript`` is invoked
+        with the script's full path). Absolute paths are kept as-is.
+
+        The returned mapping is keyed by Spacecraft resource name and is a
+        read-only view. Discovery is cached for the life of the Mission.
+
+        Returns an empty mapping when no Spacecraft uses CCSDS-AEM, when the
+        gmat module does not expose a ``SPACECRAFT`` enum, or when the
+        registry walk raises (defensive: an obscure plugin failure should
+        not block the rest of the Mission's surface).
+        """
+        if self._attitude_input_paths is None:
+            self._attitude_input_paths = self._discover_attitude_inputs()
+        return MappingProxyType(self._attitude_input_paths)
+
+    @property
+    def attitude_inputs(self) -> Mapping[str, pd.DataFrame]:
+        """Parsed CCSDS-AEM attitude files consumed by the loaded script.
+
+        Lazy: each entry is parsed on first ``__getitem__`` via
+        :func:`gmat_run.parsers.aem_ephemeris.parse`, then cached. Iterating
+        the mapping or calling ``len`` is free — only access materialises a
+        DataFrame.
+
+        Keyed by Spacecraft resource name. Use :attr:`attitude_input_paths`
+        to recover the raw path without parsing.
+        """
+        if self._attitude_inputs is None:
+            self._attitude_inputs = _LazyAttitudeInputs(self.attitude_input_paths)
+        return self._attitude_inputs
 
     @property
     def gmat(self) -> ModuleType:
@@ -227,6 +321,51 @@ class Mission:
         # parsing on `result.reports[name]` still finds the file on disk.
         results._workspace = tempdir
         return results
+
+    # --- discovery helpers ----------------------------------------------------
+
+    def _discover_attitude_inputs(self) -> dict[str, Path]:
+        """Walk Spacecraft resources and bucket every CCSDS-AEM input.
+
+        For each Spacecraft whose ``Attitude`` field equals ``"CCSDS-AEM"``,
+        read ``AttitudeFileName`` and resolve relative paths against
+        :attr:`script_path`'s parent directory. Spacecraft using any other
+        attitude model are ignored. Spacecraft that fail to expose either
+        field are skipped silently — the rest of the script may still be
+        usable, and a missing AttitudeFileName is something the user can
+        diagnose by inspecting the script directly.
+        """
+        type_id = getattr(self._gmat, _SPACECRAFT_TYPE_ENUM_ATTR, None)
+        if type_id is None:
+            return {}
+        moderator = self._gmat.Moderator.Instance()
+        try:
+            names = list(moderator.GetListOfObjects(type_id))
+        except Exception:
+            return {}
+        script_dir = self.script_path.parent
+        inputs: dict[str, Path] = {}
+        for name in names:
+            obj = self._gmat.GetObject(name)
+            if obj is None:
+                continue
+            try:
+                attitude = str(obj.GetField("Attitude"))
+            except Exception:
+                continue
+            if attitude != _AEM_ATTITUDE_VALUE:
+                continue
+            try:
+                filename = str(obj.GetField("AttitudeFileName"))
+            except Exception:
+                continue
+            if not filename:
+                continue
+            resolved = Path(filename)
+            if not resolved.is_absolute():
+                resolved = (script_dir / resolved).resolve()
+            inputs[name] = resolved
+        return inputs
 
     # --- run helpers ----------------------------------------------------------
 
