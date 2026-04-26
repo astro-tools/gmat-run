@@ -93,3 +93,29 @@ def test_minimal_mission_runs_end_to_end(
 
     # The output dir holds the actual report file written by GMAT.
     assert (result.output_dir / "leo_state.txt").is_file()
+
+
+def test_keplerian_field_override_after_load_runs_clean(
+    gmat_available: None,
+    minimal_script: Path,
+) -> None:
+    """Pre-run subscript writes against Keplerian fields actually take effect.
+
+    Regression guard: prior to the ``gmat.Initialize()`` call inside
+    ``Mission.load``, writing ``mission["Sat.SMA"]`` after load raised a
+    spurious "ECC > 1" validation error from GMAT, even though the loaded
+    spacecraft was clearly elliptical. The pattern is documented in
+    ``docs/getting-started.md`` and demonstrated in
+    ``docs/examples/02_parameter_sweep.ipynb``, so it has to survive engine
+    upgrades.
+    """
+    new_sma = 7500.0
+
+    mission = Mission.load(minimal_script)
+    mission["Sat.SMA"] = new_sma
+    result = mission.run()
+
+    # Override survives the run — the report's first SMA row reflects the
+    # written value, modulo numerical round-trip through Cartesian.
+    df = result.reports["RF"]
+    assert df["Sat.SMA"].iloc[0] == pytest.approx(new_sma, rel=1e-6)

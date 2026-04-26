@@ -71,6 +71,8 @@ class _FakeObject:
         type_name: str,
         name: str,
         fields: dict[str, tuple[int, Any, bool]],
+        *,
+        initialize_raises: BaseException | None = None,
     ) -> None:
         # fields: {field_name: (type_code, value, read_only)}
         self._type = type_name
@@ -78,6 +80,8 @@ class _FakeObject:
         self._fields = fields
         self._order = list(fields.keys())
         self.set_calls: list[tuple[str, Any]] = []
+        self.init_calls: int = 0
+        self._initialize_raises = initialize_raises
 
     def GetTypeName(self) -> str:
         return self._type
@@ -141,6 +145,11 @@ class _FakeObject:
             raise RuntimeError(f"field '{name}' is read-only")
         self._fields[name] = (type_code, value, read_only)
         self.set_calls.append((name, value))
+
+    def Initialize(self) -> None:
+        self.init_calls += 1
+        if self._initialize_raises is not None:
+            raise self._initialize_raises
 
 
 # --- fake gmat module factory -------------------------------------------------
@@ -408,6 +417,46 @@ def test_load_passes_explicit_gmat_root_through(
 
     Mission.load(tmp_path / "x.script", gmat_root="/explicit/path")
     assert captured["root"] == "/explicit/path"
+
+
+def test_load_initialises_each_spacecraft_after_parse(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    install = _make_install(tmp_path / "gmat")
+    sat_a = _spacecraft("SatA")
+    sat_b = _spacecraft("SatB")
+    gmat = _make_fake_gmat({"SatA": sat_a, "SatB": sat_b})
+    monkeypatch.setattr("gmat_run.mission.locate_gmat", lambda gmat_root=None: install)
+    monkeypatch.setattr("gmat_run.mission.bootstrap", lambda _install: gmat)
+
+    script = tmp_path / "any.script"
+    script.write_text("# fake\n", encoding="utf-8")
+
+    Mission.load(script)
+
+    assert sat_a.init_calls == 1
+    assert sat_b.init_calls == 1
+
+
+def test_load_wraps_spacecraft_initialize_failure_as_gmat_load_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    install = _make_install(tmp_path / "gmat")
+    sat = _FakeObject(
+        "Spacecraft",
+        "Sat",
+        {"SMA": (_TYPE_CODES["REAL_TYPE"], 7000.0, False)},
+        initialize_raises=_FakeAPIException("bad force model"),
+    )
+    gmat = _make_fake_gmat({"Sat": sat})
+    monkeypatch.setattr("gmat_run.mission.locate_gmat", lambda gmat_root=None: install)
+    monkeypatch.setattr("gmat_run.mission.bootstrap", lambda _install: gmat)
+
+    with pytest.raises(GmatLoadError) as excinfo:
+        Mission.load(tmp_path / "bad.script")
+
+    assert "bad.script" in str(excinfo.value)
+    assert "bad force model" in str(excinfo.value)
 
 
 # --- gmat property ------------------------------------------------------------
