@@ -165,7 +165,9 @@ def _glob_patterns_for_platform(platform: str) -> list[str]:
     if platform == "win32":
         return [r"C:\Program Files\GMAT*", r"C:\Program Files (x86)\GMAT*"]
     if platform == "darwin":
-        return ["/Applications/GMAT*"]
+        # Upstream allows either /Applications or ~/Applications; plugin loading
+        # only works from one of these two locations.
+        return ["/Applications/GMAT*", "~/Applications/GMAT*"]
     return ["~/gmat-*", "/opt/gmat-*"]
 
 

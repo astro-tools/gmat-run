@@ -191,6 +191,14 @@ def test_glob_patterns_per_platform(platform: str, expected_pattern_substr: str)
     assert any(expected_pattern_substr in p for p in patterns)
 
 
+def test_darwin_globs_cover_both_applications_dirs() -> None:
+    # Upstream supports installing under /Applications or ~/Applications;
+    # both must be discoverable.
+    patterns = install._glob_patterns_for_platform("darwin")
+    assert any(p.startswith("/Applications/") for p in patterns)
+    assert any(p.startswith("~/Applications/") for p in patterns)
+
+
 # --- PATH ---------------------------------------------------------------------
 
 

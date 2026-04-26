@@ -31,7 +31,7 @@ gmat-run loads it, lets you override fields from Python, runs the mission headle
 
 | GMAT release | Status | CI |
 |---|---|---|
-| R2026a | Primary development target | Exercised on every PR (Ubuntu + Windows) |
+| R2026a | Primary development target | Exercised on every PR (Ubuntu + Windows + macOS) |
 | R2025a | Expected to work | Not exercised in CI for v0.1 |
 | R2024a | Expected to work | Not exercised in CI for v0.1 |
 | R2023a | Expected to work | Not exercised in CI for v0.1 |
