@@ -123,6 +123,20 @@ SAMPLES = [
         rtol=1e-6,
         atol=1e-6,
     ),
+    Sample(
+        # Mirrors Ex_LEOEphemeris but emits STK-TimePosVel instead of
+        # CCSDS-OEM. Same fixed-cadence reasoning, plus an Epoch
+        # truncation step in the comparator: STK's writer keeps integrator
+        # drift in the offset column at sub-microsecond precision, so the
+        # parsed Epoch carries ~20 ns of platform-libm jitter per record.
+        # Goldens are ms-truncated on serialise (same as OEM); the actual
+        # frame is ms-truncated below before compare.
+        script_name="Ex_STKEphemeris.script",
+        script_root="fixtures",
+        ephemerides={"EF": "Ex_STKEphemeris__EF"},
+        rtol=1e-6,
+        atol=1e-6,
+    ),
 ]
 
 
@@ -191,6 +205,20 @@ def _read_golden(path: Path, *, epoch_format: Literal["report", "ephemeris"]) ->
     return df
 
 
+def _truncate_datetime_to_ms(df: pd.DataFrame) -> pd.DataFrame:
+    """Floor every datetime64 column to millisecond resolution.
+
+    Goldens round-trip through millisecond-precision text on serialise; the
+    actual frame must match that resolution before :func:`assert_frame_equal`
+    can compare them with strict dtype checks.
+    """
+    out: pd.DataFrame = df.copy()
+    for col in out.columns:
+        if pd.api.types.is_datetime64_any_dtype(out[col]):
+            out[col] = out[col].dt.floor("ms").astype("datetime64[ns]")
+    return out
+
+
 def _write_golden(
     df: pd.DataFrame, path: Path, *, epoch_format: Literal["report", "ephemeris"]
 ) -> None:
@@ -246,8 +274,14 @@ def test_sample_round_trip(
                 f"`pytest --regenerate-golden tests/integration/` to create it"
             )
         expected = _read_golden(golden_path, epoch_format=epoch_format)
+        # Goldens are serialised with millisecond-precision epoch text and
+        # re-parsed back; truncate the actual frame's datetime columns to
+        # match. For the OEM path this is a no-op (the file format is
+        # already ms-precise); for STK it absorbs the sub-microsecond
+        # integrator drift that surfaces in offset-based epoch reconstruction.
+        actual = _truncate_datetime_to_ms(df)
         assert_frame_equal(
-            df,
+            actual,
             expected,
             rtol=sample.rtol,
             atol=sample.atol,
