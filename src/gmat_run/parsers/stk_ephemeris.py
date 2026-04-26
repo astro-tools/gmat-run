@@ -164,9 +164,7 @@ def parse(path: str | os.PathLike[str]) -> pd.DataFrame:
 # --- file structure ---------------------------------------------------------
 
 
-def _split(
-    lines: list[str], path: Path
-) -> tuple[_Header, dict[str, str], list[list[str]], int]:
+def _split(lines: list[str], path: Path) -> tuple[_Header, dict[str, str], list[list[str]], int]:
     """Walk ``lines`` once, returning header, meta, data rows, and data lineno.
 
     Pre-``BEGIN Ephemeris``: version banner + ``# …`` comments. Inside the
@@ -204,9 +202,7 @@ def _split(
                 continue
             if _VERSION_BANNER_RE.match(line):
                 if header.version:
-                    raise GmatOutputParseError(
-                        f"line {index}: duplicate stk.v.X.Y banner", path
-                    )
+                    raise GmatOutputParseError(f"line {index}: duplicate stk.v.X.Y banner", path)
                 header.version = line
                 continue
             raise GmatOutputParseError(
@@ -216,9 +212,7 @@ def _split(
             )
 
         if seen_end:
-            raise GmatOutputParseError(
-                f"line {index}: content after END Ephemeris: {line!r}", path
-            )
+            raise GmatOutputParseError(f"line {index}: content after END Ephemeris: {line!r}", path)
 
         if line == _END_EPHEMERIS:
             seen_end = True
@@ -246,15 +240,11 @@ def _split(
         rows.append(_split_record(line, index, path))
 
     if not header.version:
-        raise GmatOutputParseError(
-            "missing stk.v.X.Y version banner; not an STK ephemeris?", path
-        )
+        raise GmatOutputParseError("missing stk.v.X.Y version banner; not an STK ephemeris?", path)
     if not in_ephemeris:
         raise GmatOutputParseError("missing BEGIN Ephemeris block", path)
     if not data_start_lineno:
-        raise GmatOutputParseError(
-            "missing EphemerisTimePosVel data section", path
-        )
+        raise GmatOutputParseError("missing EphemerisTimePosVel data section", path)
 
     return header, meta, rows, data_start_lineno
 
@@ -268,9 +258,7 @@ def _parse_meta_line(line: str, lineno: int, path: Path) -> tuple[str, str]:
     """
     tokens = line.split(maxsplit=1)
     if len(tokens) != 2:
-        raise GmatOutputParseError(
-            f"line {lineno}: expected 'KEY VALUE', got {line!r}", path
-        )
+        raise GmatOutputParseError(f"line {lineno}: expected 'KEY VALUE', got {line!r}", path)
     key, value = tokens
     return key, value.strip()
 
@@ -312,15 +300,12 @@ def _records_to_frame(
         offsets = pd.to_numeric(pd.Series(offsets_raw))
     except (ValueError, TypeError) as exc:
         raise GmatOutputParseError(
-            f"non-numeric offset in data section starting at line "
-            f"{data_start_lineno}: {exc}",
+            f"non-numeric offset in data section starting at line {data_start_lineno}: {exc}",
             path,
         ) from exc
     # Force the addition result to datetime64[ns] explicitly so the column
     # dtype is stable across pandas releases.
-    epochs_series = (scenario_epoch + pd.to_timedelta(offsets, unit="s")).astype(
-        "datetime64[ns]"
-    )
+    epochs_series = (scenario_epoch + pd.to_timedelta(offsets, unit="s")).astype("datetime64[ns]")
 
     state_frame = pd.DataFrame(states, columns=_STATE_COLUMNS)
     for column in _STATE_COLUMNS:
