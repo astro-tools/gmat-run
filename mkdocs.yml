@@ -9,6 +9,7 @@ theme:
   name: material
   features:
     - content.code.copy
+    - navigation.indexes
     - navigation.instant
     - navigation.sections
     - navigation.top
@@ -37,10 +38,12 @@ nav:
   - Install GMAT: install-gmat.md
   - CLI usage: cli.md
   - Examples:
+      - examples/index.md
       - Load / run / plot: examples/01_load_run_plot.ipynb
       - Parameter sweep: examples/02_parameter_sweep.ipynb
       - Ground track: examples/03_ground_track.ipynb
   - API reference:
+      - reference/index.md
       - Mission: reference/mission.md
       - Results: reference/results.md
       - Install discovery: reference/install.md

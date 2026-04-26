@@ -30,5 +30,5 @@ result.reports["ReportFile1"].plot(x="UTCGregorian", y="Sat.Earth.Altitude")
 
 - [Getting started](getting-started.md) — install gmat-run and run your first mission.
 - [Install GMAT](install-gmat.md) — get the GMAT engine on your machine.
-- [API reference](reference/mission.md) — the public Python API.
+- [API reference](reference/index.md) — the public Python API.
 - [Known limitations](known-limitations.md) — gmatpy single-init constraint and other gotchas.

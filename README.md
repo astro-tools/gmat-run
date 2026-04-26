@@ -86,7 +86,7 @@ Full docs at **<https://astro-tools.github.io/gmat-run/>**, including a
 [getting-started guide](https://astro-tools.github.io/gmat-run/getting-started/),
 [GMAT install instructions](https://astro-tools.github.io/gmat-run/install-gmat/),
 the [CLI reference](https://astro-tools.github.io/gmat-run/cli/),
-and the [API reference](https://astro-tools.github.io/gmat-run/reference/mission/).
+and the [API reference](https://astro-tools.github.io/gmat-run/reference/).
 
 ## Development
 
