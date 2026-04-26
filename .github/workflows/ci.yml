@@ -148,6 +148,7 @@ jobs:
         run: |
           uv sync --all-groups --extra examples
           uv run jupyter execute docs/examples/01_load_run_plot.ipynb
+          uv run jupyter execute docs/examples/02_parameter_sweep.ipynb
 
   lint:
     name: lint
