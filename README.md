@@ -67,11 +67,21 @@ object graph. Subscript access reads and writes fields against that graph with t
 `Results` whose `reports` mapping parses each `ReportFile` to a DataFrame on first access —
 with `UTCGregorian` and `*ModJulian` epoch columns promoted to `datetime64[ns]`.
 
+A `gmat-run` console script is also installed for shell-script and smoke-test use:
+
+```bash
+gmat-run run flyby.script --out results/
+```
+
+See the [CLI reference](https://astro-tools.github.io/gmat-run/cli/) for flags, exit codes,
+and sample output.
+
 ## Documentation
 
 Full docs at **<https://astro-tools.github.io/gmat-run/>**, including a
 [getting-started guide](https://astro-tools.github.io/gmat-run/getting-started/),
 [GMAT install instructions](https://astro-tools.github.io/gmat-run/install-gmat/),
+the [CLI reference](https://astro-tools.github.io/gmat-run/cli/),
 and the [API reference](https://astro-tools.github.io/gmat-run/reference/).
 
 ## Development
