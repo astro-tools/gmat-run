@@ -32,6 +32,8 @@ import pandas as pd
 from gmat_run.parsers.contact import parse as _parse_contact
 from gmat_run.parsers.ephemeris import parse as _parse_oem_ephemeris
 from gmat_run.parsers.reportfile import parse as _parse_reportfile
+from gmat_run.parsers.spk import is_spk_ephemeris as _is_spk_ephemeris
+from gmat_run.parsers.spk import parse as _parse_spk_ephemeris
 from gmat_run.parsers.stk_ephemeris import is_stk_ephemeris as _is_stk_ephemeris
 from gmat_run.parsers.stk_ephemeris import parse as _parse_stk_ephemeris
 
@@ -81,9 +83,11 @@ class _LazyReports(Mapping[str, pd.DataFrame]):
 class _LazyEphemerides(Mapping[str, pd.DataFrame]):
     """Mapping view over ``EphemerisFile`` outputs.
 
-    Mirrors :class:`_LazyReports` but dispatches between GMAT's two text
-    ephemeris formats — CCSDS-OEM and STK-TimePosVel — by sniffing the file's
-    first content line. The format choice is per-file rather than per-mapping
+    Mirrors :class:`_LazyReports` but dispatches between GMAT's three
+    ephemeris formats — SPK, STK-TimePosVel, and CCSDS-OEM — by sniffing
+    the file's content. SPK and STK are positively detected (DAF/SPK
+    magic and the ``stk.v.X.Y`` banner respectively); CCSDS-OEM is the
+    fallback. The format choice is per-file rather than per-mapping
     because nothing stops a single ``Mission.run`` from declaring two
     ``EphemerisFile`` resources with different ``FileFormat`` settings.
 
@@ -102,8 +106,12 @@ class _LazyEphemerides(Mapping[str, pd.DataFrame]):
         if key not in self._paths:
             raise KeyError(key)
         path = self._paths[key]
-        parser = _parse_stk_ephemeris if _is_stk_ephemeris(path) else _parse_oem_ephemeris
-        frame = parser(path)
+        if _is_spk_ephemeris(path):
+            frame = _parse_spk_ephemeris(path)
+        elif _is_stk_ephemeris(path):
+            frame = _parse_stk_ephemeris(path)
+        else:
+            frame = _parse_oem_ephemeris(path)
         self._cache[key] = frame
         return frame
 

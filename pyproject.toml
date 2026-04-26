@@ -36,6 +36,7 @@ dependencies = [
 [project.optional-dependencies]
 astropy = ["astropy>=6.0"]
 examples = ["matplotlib>=3.8"]
+spiceypy = ["spiceypy>=6.0"]
 
 [project.scripts]
 gmat-run = "gmat_run.cli:main"
@@ -52,6 +53,7 @@ dev = [
   "ruff>=0.6",
   "mypy>=1.11",
   "pandas-stubs",
+  "spiceypy>=6.0",
 ]
 docs = [
   "mkdocs-material>=9.5",
@@ -85,6 +87,12 @@ files = ["src/gmat_run", "tests"]
 # gmatpy is a runtime-discovered module from the user's GMAT install; do not type-check it.
 [[tool.mypy.overrides]]
 module = ["gmatpy", "gmatpy.*", "load_gmat"]
+ignore_missing_imports = true
+
+# spiceypy ships no type stubs; the SPK parser confines its surface to a
+# small set of typed wrappers and treats spiceypy returns as Any internally.
+[[tool.mypy.overrides]]
+module = ["spiceypy", "spiceypy.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
