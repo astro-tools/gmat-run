@@ -32,12 +32,28 @@ primary development target.
 ```bash
 uv run pytest           # unit tests (integration tests are gated behind a marker)
 uv run ruff check       # lint
+uv run ruff format --check  # formatting
 uv run mypy             # types
 ```
 
-CI re-runs all three on Ubuntu and Windows. Integration tests run in CI against a
-cached GMAT install; you do not need to run them locally unless you are touching
-the run/load path.
+CI re-runs all four on Ubuntu, Windows, and macOS. Integration tests run in CI
+against a cached GMAT install; you do not need to run them locally unless you
+are touching the run/load path.
+
+### Coverage thresholds
+
+CI enforces two coverage gates on the Ubuntu / Python 3.12 cell:
+
+- Overall coverage must be ≥ 80%.
+- The `src/gmat_run/parsers/` package must be ≥ 95%.
+
+To reproduce locally:
+
+```bash
+uv run pytest -m "integration or not integration" --cov
+uv run coverage report --fail-under=80
+uv run coverage report --include='src/gmat_run/parsers/*' --fail-under=95
+```
 
 ## Commit messages
 
