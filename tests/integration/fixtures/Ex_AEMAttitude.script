@@ -1,0 +1,13 @@
+%  Minimal mission used by the integration suite to exercise
+%  Mission.attitude_inputs discovery. A single Spacecraft sets
+%  Attitude = CCSDS-AEM and points AttitudeFileName at the in-repo NASA/GSFC
+%  quaternion sample so the parser round-trips against a real CCSDS-AEM file.
+%  No propagation is required - discovery and parse happen entirely on
+%  Mission.load(), and the BeginMissionSequence is present only so
+%  gmat.LoadScript() accepts the script.
+
+Create Spacecraft Sat
+Sat.Attitude = CCSDS-AEM
+Sat.AttitudeFileName = '../../fixtures/aem_ephemeris/CCSDS_BasicQuatFile.aem'
+
+BeginMissionSequence
