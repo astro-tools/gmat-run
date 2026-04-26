@@ -8,13 +8,13 @@
 
 ### Supported GMAT versions
 
-| GMAT release | Status                       | CI                                            |
-| ------------ | ---------------------------- | --------------------------------------------- |
-| R2026a       | Primary development target   | Exercised on every PR (Ubuntu + Windows)      |
-| R2025a       | Expected to work             | Not exercised in CI for v0.1                  |
-| R2024a       | Expected to work             | Not exercised in CI for v0.1                  |
-| R2023a       | Expected to work             | Not exercised in CI for v0.1                  |
-| R2022a       | Expected to work             | Not exercised in CI for v0.1                  |
+| GMAT release | Status                     | CI                                                 |
+| ------------ | -------------------------- | -------------------------------------------------- |
+| R2026a       | Primary development target | Exercised on every PR (Ubuntu + Windows + macOS)   |
+| R2025a       | Expected to work           | Not exercised in CI                                |
+| R2024a       | Expected to work           | Not exercised in CI                                |
+| R2023a       | Expected to work           | Not exercised in CI                                |
+| R2022a       | Expected to work           | Not exercised in CI                                |
 
 A wider CI matrix is planned for a follow-up release; report any version-specific
 breakage as an issue and we'll add a CI cell for it.
