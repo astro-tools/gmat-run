@@ -139,6 +139,16 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         run: uv run coverage report --include='src/gmat_run/parsers/*' --fail-under=95
 
+      # Smoke-execute the example notebook end-to-end. This catches the
+      # "someone changed Mission/Results and forgot to refresh the committed
+      # notebook" regression. One matrix combo is enough — the underlying
+      # script path is covered cross-platform by test_round_trip.
+      - name: Smoke-execute example notebooks
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          uv sync --all-groups --extra examples
+          uv run jupyter execute docs/examples/01_load_run_plot.ipynb
+
   lint:
     name: lint
     runs-on: ubuntu-latest
