@@ -39,6 +39,7 @@ nav:
   - Examples:
       - Load / run / plot: examples/01_load_run_plot.ipynb
       - Parameter sweep: examples/02_parameter_sweep.ipynb
+      - Ground track: examples/03_ground_track.ipynb
   - API reference: reference.md
 
 plugins:
