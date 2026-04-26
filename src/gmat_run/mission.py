@@ -297,12 +297,24 @@ class Mission:
         try:
             status = int(self._gmat.RunScript())
         except api_exception as exc:
+            log = _safe_read(log_path)
+            self._release_log_handle()
             raise GmatRunError(
                 f"GMAT raised {type(exc).__name__} during RunScript: {exc}",
-                log=_safe_read(log_path),
+                log=log,
             ) from exc
 
         log = _safe_read(log_path)
+        # Repoint UseLogFile away from the workspace before yielding control.
+        # GMAT's MessageInterface holds the log file open for the lifetime of
+        # the gmatpy module, so on Windows any later attempt to delete the
+        # temp workspace (Results.persist, GC of the TemporaryDirectory) hits
+        # WinError 32 on GmatLog.txt. Redirecting to os.devnull closes the
+        # workspace handle; the log content has already been captured into
+        # ``log`` above. Subsequent GMAT operations log to the null sink
+        # until the next mission.run() repoints the handle again — accepted,
+        # since gmat-run's public surface ends at Results.
+        self._release_log_handle()
         if status != _RUNSCRIPT_OK:
             raise GmatRunError(
                 f"GMAT RunScript returned status {status}; expected {_RUNSCRIPT_OK}",
@@ -368,6 +380,18 @@ class Mission:
         return inputs
 
     # --- run helpers ----------------------------------------------------------
+
+    def _release_log_handle(self) -> None:
+        """Close GMAT's hold on the previous log path by repointing it.
+
+        ``UseLogFile(os.devnull)`` is the cheapest way to make GMAT's
+        MessageInterface drop the file handle on the previous path. The
+        ``suppress`` exists only as defence in depth — failure here would
+        propagate as an unrelated error during a successful run, masking the
+        Results the caller wanted.
+        """
+        with suppress(Exception):
+            self._gmat.UseLogFile(os.devnull)
 
     def _rewrite_output_paths(
         self, workspace_path: Path

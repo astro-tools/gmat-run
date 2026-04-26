@@ -456,38 +456,6 @@ class TestPersist:
         df_after = result.reports["R1"]
         assert df_after is df_before
 
-    def test_swallows_oserror_during_workspace_cleanup(self, tmp_path: Path) -> None:
-        # On Windows, GMAT keeps GmatLog.txt open past RunScript() so
-        # TemporaryDirectory.cleanup() raises PermissionError. The artefacts
-        # have already been copied into ``dest``; persist must not surface the
-        # cleanup failure to the caller. The temp dir gets reaped at GC later.
-        class _LockedTempDir:
-            def __init__(self, path: Path) -> None:
-                self.name = str(path)
-                self.cleaned = False
-
-            def cleanup(self) -> None:
-                self.cleaned = True
-                raise PermissionError(32, "in use by another process")
-
-        workspace = tmp_path / "locked-workspace"
-        workspace.mkdir()
-        _write_report(workspace / "r1.txt")
-        result = Results(
-            output_dir=workspace,
-            log="",
-            report_paths={"R1": workspace / "r1.txt"},
-        )
-        locked = _LockedTempDir(workspace)
-        result._workspace = locked  # type: ignore[assignment]
-
-        # Must not raise.
-        result.persist(tmp_path / "persisted")
-
-        assert locked.cleaned is True
-        assert result._workspace is None
-        assert (tmp_path / "persisted" / "r1.txt").exists()
-
     def test_releases_temp_workspace(self, tmp_path: Path) -> None:
         # Stand up a real TemporaryDirectory so persist exercises the cleanup
         # path, mirroring what Mission.run() builds for the default case.
