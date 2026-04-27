@@ -9,8 +9,9 @@ can branch on it without re-parsing the column name.
 
 No leap-second-correct time-scale *conversion* happens here: a
 ``TAIModJulian`` column becomes a ``datetime64[ns]`` representing the TAI
-instant, labelled ``"TAI"``. UTC ↔ TAI / TT / TDB conversion is the v0.3
-astropy-extra job.
+instant, labelled ``"TAI"``. For converting between scales (UTC ↔ TAI / TT /
+TDB / A1) on a promoted DataFrame, see :mod:`gmat_run.time`, which is gated
+behind the ``[astropy]`` extra.
 
 Columns whose name ends in ``Gregorian`` or ``ModJulian`` but are not one of
 the ten recognised names trigger a ``UserWarning`` and are left untouched —

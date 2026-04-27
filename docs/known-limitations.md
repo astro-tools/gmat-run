@@ -90,5 +90,7 @@ turns the ten `{scale}{format}` GMAT epoch columns into
 `datetime64[ns]` with the time scale recorded on `df.attrs["epoch_scales"]`.
 It does **not** apply leap-second-correct conversion between scales: a
 `TAIModJulian` column becomes a `datetime64[ns]` representing the TAI instant,
-labelled `"TAI"`. Aligning across scales (UTC ↔ TAI ↔ TT ↔ TDB) is deferred
-to a future astropy-extra release.
+labelled `"TAI"`. For converting between scales after promotion, see
+[`gmat_run.time`](reference/time.md), which routes A1/TAI/UTC/TT/TDB through
+[`astropy.time.Time`](https://docs.astropy.org/en/stable/time/) and is gated
+behind the `[astropy]` extra.
