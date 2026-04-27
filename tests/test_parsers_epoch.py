@@ -5,6 +5,7 @@ End-to-end tests through ``reportfile.parse`` live in
 ``test_parsers_reportfile.py``.
 """
 
+import sys
 import warnings
 
 import numpy as np
@@ -210,3 +211,78 @@ def test_returns_same_frame_for_chaining() -> None:
     df = pd.DataFrame({"Sat.UTCGregorian": ["01 Jan 2000 12:00:00.000"]})
     result = promote_epochs(df)
     assert result is df
+
+
+# --- convert_to --------------------------------------------------------------
+
+
+def test_convert_to_unifies_mixed_scales() -> None:
+    """Multiple columns labelled in different scales all land on the target."""
+    # Same physical instant expressed in two different scales. UTC 2026-01-15
+    # 12:00:00 == TAI 2026-01-15 12:00:37 (37 s leap-second offset in 2026).
+    df = pd.DataFrame(
+        {
+            "Sat.UTCGregorian": ["15 Jan 2026 12:00:00.000"],
+            "Sat.TAIGregorian": ["15 Jan 2026 12:00:37.000"],
+        }
+    )
+    promote_epochs(df, convert_to="UTC")
+    assert df.attrs["epoch_scales"] == {
+        "Sat.UTCGregorian": "UTC",
+        "Sat.TAIGregorian": "UTC",
+    }
+    # Both columns now hold the same UTC instant.
+    assert df["Sat.UTCGregorian"].iloc[0] == df["Sat.TAIGregorian"].iloc[0]
+    assert df["Sat.UTCGregorian"].iloc[0] == pd.Timestamp("2026-01-15 12:00:00")
+
+
+def test_convert_to_same_as_source_is_attrs_noop() -> None:
+    """convert_to equal to the detected scale leaves data and attrs intact."""
+    df = pd.DataFrame({"Sat.UTCGregorian": ["15 Jan 2026 12:00:00.000"]})
+    promote_epochs(df, convert_to="UTC")
+    assert df.attrs["epoch_scales"] == {"Sat.UTCGregorian": "UTC"}
+    assert df["Sat.UTCGregorian"].iloc[0] == pd.Timestamp("2026-01-15 12:00:00")
+
+
+def test_convert_to_unrecognised_target_raises() -> None:
+    df = pd.DataFrame({"Sat.UTCGregorian": ["15 Jan 2026 12:00:00.000"]})
+    with pytest.raises(ValueError, match=r"to_scale"):
+        promote_epochs(df, convert_to="GPS")
+
+
+def test_convert_to_with_no_promoted_columns_is_a_noop() -> None:
+    """No epoch columns → no astropy import, no errors, no attrs."""
+    df = pd.DataFrame({"Sat.Earth.SMA": [6578.136]})
+    snapshot = df.copy(deep=True)
+    promote_epochs(df, convert_to="UTC")
+    pd.testing.assert_frame_equal(df, snapshot)
+    assert "epoch_scales" not in df.attrs
+
+
+def test_convert_to_missing_astropy_raises_friendly_importerror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-trivial convert_to with astropy missing surfaces the install hint."""
+    monkeypatch.setitem(sys.modules, "astropy", None)
+    monkeypatch.setitem(sys.modules, "astropy.time", None)
+    df = pd.DataFrame({"Sat.UTCGregorian": ["15 Jan 2026 12:00:00.000"]})
+    with pytest.raises(ImportError, match=r"astropy.*\[astropy\]"):
+        promote_epochs(df, convert_to="TAI")
+
+
+def test_convert_to_default_none_is_legacy_behaviour() -> None:
+    """Regression: ``convert_to=None`` (the default) leaves scales detected only."""
+    df = pd.DataFrame(
+        {
+            "Sat.UTCGregorian": ["15 Jan 2026 12:00:00.000"],
+            "Sat.TAIModJulian": [21545.0],
+        }
+    )
+    promote_epochs(df)
+    assert df.attrs["epoch_scales"] == {
+        "Sat.UTCGregorian": "UTC",
+        "Sat.TAIModJulian": "TAI",
+    }
+    # Each column still reads in its native scale — nothing was converted.
+    assert df["Sat.UTCGregorian"].iloc[0] == pd.Timestamp("2026-01-15 12:00:00")
+    assert df["Sat.TAIModJulian"].iloc[0] == pd.Timestamp("2000-01-01 12:00:00")

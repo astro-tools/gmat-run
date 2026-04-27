@@ -416,3 +416,25 @@ def test_is_stk_ephemeris_false_for_missing_file(tmp_path: Path) -> None:
 def test_is_stk_ephemeris_false_for_empty_file(tmp_path: Path) -> None:
     path = _write(tmp_path / "empty.e", "")
     assert is_stk_ephemeris(path) is False
+
+
+# --- convert_to -------------------------------------------------------------
+
+
+def test_convert_to_changes_epoch_scale(tmp_path: Path) -> None:
+    """STK files default to UTC; convert_to=TAI shifts by the leap-second offset."""
+    df = parse(_write(tmp_path / "basic.e", _BASIC), convert_to="TAI")
+    assert df.attrs["epoch_scales"] == {"Epoch": "TAI"}
+    # 2026 is past the 2017 leap second, so TAI - UTC = 37 s.
+    assert df["Epoch"].iloc[0] == pd.Timestamp("2026-01-01 12:00:37")
+
+
+def test_convert_to_unrecognised_target_raises(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"to_scale"):
+        parse(_write(tmp_path / "basic.e", _BASIC), convert_to="GPS")
+
+
+def test_convert_to_default_none_keeps_native_scale(tmp_path: Path) -> None:
+    """Regression: the default leaves Epoch tagged UTC."""
+    df = parse(_write(tmp_path / "basic.e", _BASIC))
+    assert df.attrs["epoch_scales"] == {"Epoch": "UTC"}

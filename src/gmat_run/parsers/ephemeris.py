@@ -40,6 +40,7 @@ from typing import Any, Final
 import pandas as pd
 
 from gmat_run.errors import GmatOutputParseError
+from gmat_run.parsers.epoch import promote_epochs
 
 __all__ = ["parse"]
 
@@ -89,11 +90,19 @@ class _Segment:
     data_start_lineno: int = 0
 
 
-def parse(path: str | os.PathLike[str]) -> pd.DataFrame:
+def parse(path: str | os.PathLike[str], *, convert_to: str | None = None) -> pd.DataFrame:
     """Parse a CCSDS-OEM ephemeris file into a :class:`pandas.DataFrame`.
 
     Args:
         path: Path to the ``.oem`` (or ``.eph``) file on disk.
+        convert_to: If set, the ``Epoch`` column is converted from the file's
+            ``TIME_SYSTEM`` scale to ``convert_to``. Must be one of the five
+            recognised GMAT scales (``A1``, ``TAI``, ``UTC``, ``TT``,
+            ``TDB``); the file's ``TIME_SYSTEM`` must also resolve to one of
+            those (CCSDS-OEM permits values like ``UT1`` or ``GPS`` that
+            ``gmat-run`` does not convert). Conversion is delegated to
+            :func:`gmat_run.parsers.epoch.promote_epochs`, which is gated
+            behind the ``[astropy]`` extra.
 
     Returns:
         A DataFrame with one row per state record. Columns are ``Epoch`` (a
@@ -116,6 +125,10 @@ def parse(path: str | os.PathLike[str]) -> pd.DataFrame:
         GmatOutputParseError: The file is empty, no ``META_START`` block was
             found, a meta line is malformed, a record's column count is wrong,
             or an epoch / state value cannot be parsed.
+        ValueError: ``convert_to`` is set to an unrecognised GMAT scale, or
+            the file's ``TIME_SYSTEM`` is not one of the five GMAT scales.
+        ImportError: ``convert_to`` is set, a non-trivial conversion is
+            required, and ``astropy`` is not installed.
     """
     path = Path(path)
     with path.open(encoding="utf-8-sig", newline=None) as fh:
@@ -149,6 +162,10 @@ def parse(path: str | os.PathLike[str]) -> pd.DataFrame:
     if len(metas) > 1:
         result.attrs["segments"] = [dict(m) for m in metas]
     result.attrs["file_header"] = dict(file_header)
+    if convert_to is not None:
+        # ``Epoch`` has no recognised suffix, so promote_epochs's promotion
+        # loop is a no-op; only its convert_to branch runs.
+        promote_epochs(result, convert_to=convert_to)
     return result
 
 

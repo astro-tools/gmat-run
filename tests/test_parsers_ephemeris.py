@@ -334,3 +334,31 @@ def test_unterminated_covariance_raises(tmp_path: Path) -> None:
     with pytest.raises(GmatOutputParseError) as excinfo:
         parse(path)
     assert "COVARIANCE" in str(excinfo.value)
+
+
+# --- convert_to -------------------------------------------------------------
+
+
+def test_convert_to_changes_epoch_scale(tmp_path: Path) -> None:
+    """File is TIME_SYSTEM=UTC; convert_to=TAI shifts the Epoch by the leap-second offset."""
+    df = parse(_write(tmp_path / "basic.oem", _BASIC), convert_to="TAI")
+    assert df.attrs["epoch_scales"] == {"Epoch": "TAI"}
+    # Past the 2017-01-01 leap, TAI - UTC = 37 s.
+    assert df["Epoch"].iloc[0] == pd.Timestamp("2026-01-01 12:00:37")
+
+
+def test_convert_to_unrecognised_source_scale_raises(tmp_path: Path) -> None:
+    """A CCSDS TIME_SYSTEM that gmat-run can't convert (e.g. UT1) surfaces a typed error."""
+    content = (
+        _HEADER
+        + _META_BASE.replace("TIME_SYSTEM          = UTC", "TIME_SYSTEM          = UT1")
+        + _DATA_BASE
+    )
+    with pytest.raises(ValueError, match=r"from_scale"):
+        parse(_write(tmp_path / "ut1.oem", content), convert_to="UTC")
+
+
+def test_convert_to_default_none_keeps_native_scale(tmp_path: Path) -> None:
+    """Regression: the default returns ``Epoch`` in the file's TIME_SYSTEM scale."""
+    df = parse(_write(tmp_path / "basic.oem", _BASIC))
+    assert df.attrs["epoch_scales"] == {"Epoch": "UTC"}

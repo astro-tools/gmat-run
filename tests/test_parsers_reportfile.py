@@ -196,3 +196,37 @@ def test_accepts_str_path(tmp_path: Path) -> None:
     path = _write(tmp_path / "strpath.report", _BASIC)
     df = parse(str(path))
     assert len(df) == 2
+
+
+# --- convert_to --------------------------------------------------------------
+
+
+def test_convert_to_unifies_mixed_scale_columns(tmp_path: Path) -> None:
+    """Acceptance criterion from issue #66: a mixed-scale ReportFile reads
+    out with every epoch column on the same scale and the same Timestamp
+    values for a known epoch row.
+
+    The file emits the same physical instant in TAI Gregorian and UTC
+    ModJulian. Past the 2017-01-01 leap second, TAI - UTC = 37 s, so:
+        TAI Gregorian: 15 Jan 2026 12:00:37.000
+        UTC ModJulian: 27770.50000 (2026-01-15 12:00:00 UTC; MJD 0 = 1941-01-05 12:00 UT).
+    Note: GMAT's ModJulian epoch is 1941-01-05 12:00:00, so 2026-01-15 12:00
+    is exactly (2026-01-15 12:00) - (1941-01-05 12:00) = 31055 days.
+    """
+    # 2026-01-15 12:00 - 1941-01-05 12:00 = 31055 days (verified below).
+    days = (pd.Timestamp("2026-01-15 12:00:00") - pd.Timestamp("1941-01-05 12:00:00")).days
+    content = f"Sat.TAIGregorian          Sat.UTCModJulian\n15 Jan 2026 12:00:37.000  {days}.0\n"
+    df = parse(_write(tmp_path / "mixed.report", content), convert_to="UTC")
+    assert df.attrs["epoch_scales"] == {
+        "Sat.TAIGregorian": "UTC",
+        "Sat.UTCModJulian": "UTC",
+    }
+    assert df["Sat.TAIGregorian"].iloc[0] == df["Sat.UTCModJulian"].iloc[0]
+    assert df["Sat.TAIGregorian"].iloc[0] == pd.Timestamp("2026-01-15 12:00:00")
+
+
+def test_convert_to_default_none_is_legacy_behaviour(tmp_path: Path) -> None:
+    """Regression: the default keeps each column in its native scale."""
+    df = parse(_write(tmp_path / "basic.report", _BASIC))
+    assert df.attrs["epoch_scales"] == {"Sat.UTCGregorian": "UTC"}
+    assert df["Sat.UTCGregorian"].iloc[0] == pd.Timestamp("2026-11-26 12:00:00")
