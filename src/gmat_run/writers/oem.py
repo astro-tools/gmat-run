@@ -191,11 +191,39 @@ def write_oem(
             ]
         ),
     )
+    # GMAT R2026a's CCSDS-OEM reader is strict about the version line:
+    # ``3.0`` (the ccsds-ndm default) is rejected outright; ``2.0`` is gated
+    # behind a "TESTING mode" runtime flag and unusable in production; only
+    # ``1.0`` is accepted as a propagator input. ccsds-ndm 3.x can't write
+    # ``1.0`` directly (its mapping table registers v2/v3 only), so we let
+    # it serialise as ``2.0`` and rewrite the version line in the emitted
+    # text. The KVN payload that follows is identical between v1.0 and v2.0
+    # for single-segment, covariance-free OEMs (the spec changes between
+    # those versions are confined to optional features the writer does not
+    # emit).
+    oem.version = "2.0"
 
     dest = Path(path)
     dest.parent.mkdir(parents=True, exist_ok=True)
     NdmKvnIo().to_file(oem, dest)
+    _rewrite_oem_version_line(dest)
     return dest
+
+
+def _rewrite_oem_version_line(path: Path) -> None:
+    """Patch ``CCSDS_OEM_VERS = 2.0`` → ``= 1.0`` in place. See ``write_oem``."""
+    text = path.read_text(encoding="utf-8")
+    patched = text.replace(
+        "CCSDS_OEM_VERS           = 2.0",
+        "CCSDS_OEM_VERS           = 1.0",
+        1,
+    )
+    if patched == text:
+        raise RuntimeError(
+            "ccsds-ndm did not emit the expected 'CCSDS_OEM_VERS = 2.0' header; "
+            "the writer can no longer guarantee GMAT-compatible output"
+        )
+    path.write_text(patched, encoding="utf-8")
 
 
 def _resolve_frame(value: Any) -> str:

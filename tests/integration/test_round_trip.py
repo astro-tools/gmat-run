@@ -54,6 +54,8 @@ from pandas.testing import assert_frame_equal
 from gmat_run import Mission
 from gmat_run.parsers.epoch import promote_epochs
 
+from ._compare import truncate_datetime_to_ms
+
 pytestmark = pytest.mark.integration
 
 
@@ -186,12 +188,6 @@ def sample(request: pytest.FixtureRequest) -> Sample:
     return param
 
 
-@pytest.fixture(scope="session")
-def fixtures_dir() -> Path:
-    """Where in-repo integration fixture scripts live."""
-    return Path(__file__).parent / "fixtures"
-
-
 def _run_sample(
     sample: Sample,
     samples_dir: Path,
@@ -262,24 +258,6 @@ def _read_golden(
         elif df[col].dtype.name == "str":
             df[col] = df[col].astype("object")
     return df
-
-
-def _truncate_datetime_to_ms(df: pd.DataFrame) -> pd.DataFrame:
-    """Floor every datetime64 column to millisecond resolution.
-
-    Goldens round-trip through millisecond-precision text on serialise; the
-    actual frame must match that resolution before :func:`assert_frame_equal`
-    can compare them with strict dtype checks.
-
-    Timedelta columns are NOT truncated — the contact-format goldens write
-    duration as float seconds via ``dt.total_seconds()`` and ``%.15g``, which
-    is round-trip-symmetric back through ``pd.to_timedelta(unit='s')``.
-    """
-    out: pd.DataFrame = df.copy()
-    for col in out.columns:
-        if pd.api.types.is_datetime64_any_dtype(out[col]):
-            out[col] = out[col].dt.floor("ms").astype("datetime64[ns]")
-    return out
 
 
 def _write_golden(
@@ -363,7 +341,7 @@ def test_sample_round_trip(
         # match. For the OEM path this is a no-op (the file format is
         # already ms-precise); for STK it absorbs the sub-microsecond
         # integrator drift that surfaces in offset-based epoch reconstruction.
-        actual = _truncate_datetime_to_ms(df)
+        actual = truncate_datetime_to_ms(df)
         assert_frame_equal(
             actual,
             expected,

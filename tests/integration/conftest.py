@@ -76,3 +76,9 @@ def samples_dir(gmat_available: None) -> Path:
 def golden_dir() -> Path:
     """Where the committed integration golden CSVs live."""
     return Path(__file__).parent / "golden"
+
+
+@pytest.fixture(scope="session")
+def fixtures_dir() -> Path:
+    """Where in-repo integration fixture scripts live."""
+    return Path(__file__).parent / "fixtures"
