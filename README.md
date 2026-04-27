@@ -46,10 +46,20 @@ an issue and we'll add a CI cell for it.
 pip install gmat-run
 ```
 
-For SPK ephemerides, install the `spiceypy` extra:
+Optional extras unlock format- and feature-specific code paths. Each is named after
+the dependency it pulls in:
+
+| Extra | Pulls in | Unlocks |
+|---|---|---|
+| `[spiceypy]` | `spiceypy` | SPK (NASA SPICE binary) ephemeris parsing. |
+| `[ccsds-ndm]` | `ccsds-ndm` | CCSDS-OEM export (lands in v0.3 — see [#67](https://github.com/astro-tools/gmat-run/issues/67)). |
+| `[astropy]` | `astropy` | Leap-second-correct time-scale conversion (lands in v0.3 — see [#65](https://github.com/astro-tools/gmat-run/issues/65)). |
+
+Install one or more at once:
 
 ```bash
 pip install gmat-run[spiceypy]
+pip install gmat-run[astropy,ccsds-ndm]
 ```
 
 ## Quick start
