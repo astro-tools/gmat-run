@@ -907,7 +907,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "astropy", marker = "extra == 'astropy'", specifier = ">=6.0" },
-    { name = "ccsds-ndm", marker = "extra == 'ccsds-ndm'", specifier = ">=2.0" },
+    { name = "ccsds-ndm", marker = "extra == 'ccsds-ndm'", specifier = ">=3.0" },
     { name = "matplotlib", marker = "extra == 'examples'", specifier = ">=3.8" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "pandas", specifier = ">=2.0" },
@@ -918,7 +918,7 @@ provides-extras = ["astropy", "ccsds-ndm", "examples", "spiceypy"]
 [package.metadata.requires-dev]
 dev = [
     { name = "astropy", specifier = ">=6.0" },
-    { name = "ccsds-ndm", specifier = ">=2.0" },
+    { name = "ccsds-ndm", specifier = ">=3.0" },
     { name = "mypy", specifier = ">=1.11" },
     { name = "pandas-stubs" },
     { name = "pytest", specifier = ">=8.0" },
