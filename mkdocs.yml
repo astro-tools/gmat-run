@@ -50,6 +50,7 @@ nav:
       - Runtime bootstrap: reference/runtime.md
       - Exceptions: reference/errors.md
       - Parsers: reference/parsers.md
+      - Time scales: reference/time.md
   - Known limitations: known-limitations.md
 
 plugins:
