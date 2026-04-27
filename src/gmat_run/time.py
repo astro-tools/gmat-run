@@ -19,12 +19,9 @@ without astropy installed is fine; calling :func:`convert` or
 ``install with gmat-run[astropy]`` hint.
 """
 
-from typing import TYPE_CHECKING, Any, Final
+from typing import Any, Final
 
 import pandas as pd
-
-if TYPE_CHECKING:
-    pass
 
 __all__ = ["convert", "convert_column"]
 
