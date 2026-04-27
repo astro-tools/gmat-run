@@ -36,6 +36,7 @@ from gmat_run.parsers.spk import is_spk_ephemeris as _is_spk_ephemeris
 from gmat_run.parsers.spk import parse as _parse_spk_ephemeris
 from gmat_run.parsers.stk_ephemeris import is_stk_ephemeris as _is_stk_ephemeris
 from gmat_run.parsers.stk_ephemeris import parse as _parse_stk_ephemeris
+from gmat_run.writers.oem import write_oem as _write_oem
 
 __all__ = ["Results"]
 
@@ -284,3 +285,65 @@ class Results:
             self._workspace.cleanup()
             self._workspace = None
         return self
+
+    def write_oem(
+        self,
+        name: str,
+        path: str | os.PathLike[str],
+        *,
+        originator: str = "gmat-run",
+        object_name: str | None = None,
+    ) -> Path:
+        """Write the ephemeris keyed by ``name`` to ``path`` as a CCSDS-OEM file.
+
+        The DataFrame is materialised through :attr:`ephemerides` (so the
+        same lazy-parse and cache contract applies) and emitted via
+        :func:`gmat_run.writers.oem.write_oem`. Requires the
+        ``[ccsds-ndm]`` extra; raises :class:`ImportError` with an install
+        hint if it is missing.
+
+        Args:
+            name: Resource name under :attr:`ephemerides`.
+            path: Destination ``.oem`` file. Parent directories are created.
+            originator: ``ORIGINATOR`` header value. Defaults to
+                ``"gmat-run"``.
+            object_name: Override for the ``OBJECT_NAME`` meta field. When
+                ``None``, falls back to ``df.attrs["object_name"]``.
+
+        Returns:
+            The destination ``Path``.
+
+        Raises:
+            KeyError: ``name`` is not a known ephemeris resource.
+            ImportError: ``ccsds-ndm`` is not installed.
+            ValueError: the ephemeris DataFrame is missing required
+                metadata for OEM emission. See
+                :func:`gmat_run.writers.oem.write_oem` for the full list.
+        """
+        df = self.ephemerides[name]
+        return _write_oem(df, path, originator=originator, object_name=object_name)
+
+    def write_oem_all(
+        self,
+        dirpath: str | os.PathLike[str],
+        *,
+        originator: str = "gmat-run",
+    ) -> Path:
+        """Write every ephemeris in :attr:`ephemerides` to ``dirpath`` as OEM.
+
+        Each file is named ``<name>.oem`` after its resource key. ``dirpath``
+        is created if missing. A run with no ephemerides is a no-op (the
+        directory is still created).
+
+        Args:
+            dirpath: Destination directory.
+            originator: ``ORIGINATOR`` header for every emitted file.
+
+        Returns:
+            ``dirpath`` as a resolved :class:`pathlib.Path`.
+        """
+        dest_dir = Path(dirpath)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for name in self.ephemerides:
+            self.write_oem(name, dest_dir / f"{name}.oem", originator=originator)
+        return dest_dir

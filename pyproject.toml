@@ -35,7 +35,7 @@ dependencies = [
 
 [project.optional-dependencies]
 astropy = ["astropy>=6.0"]
-ccsds-ndm = ["ccsds-ndm>=2.0"]
+ccsds-ndm = ["ccsds-ndm>=3.0"]
 examples = ["matplotlib>=3.8"]
 spiceypy = ["spiceypy>=6.0"]
 
@@ -55,7 +55,7 @@ dev = [
   "mypy>=1.11",
   "pandas-stubs",
   "astropy>=6.0",
-  "ccsds-ndm>=2.0",
+  "ccsds-ndm>=3.0",
   "spiceypy>=6.0",
 ]
 docs = [
@@ -103,6 +103,12 @@ ignore_missing_imports = true
 # import as Any inside the small surface used by gmat_run.time.
 [[tool.mypy.overrides]]
 module = ["astropy", "astropy.*"]
+ignore_missing_imports = true
+
+# ccsds-ndm 3.x has no py.typed marker; the OEM writer imports the xsdata
+# dataclasses and KVN serialiser locally and treats the surface as Any.
+[[tool.mypy.overrides]]
+module = ["ccsds_ndm", "ccsds_ndm.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -555,3 +555,47 @@ class TestPersist:
         assert result.output_dir == second
         assert (second / "r1.txt").exists()
         assert result.reports._paths["R1"] == second / "r1.txt"  # type: ignore[attr-defined]
+
+
+# --- write_oem / write_oem_all ----------------------------------------------
+
+
+def test_write_oem_returns_path_and_writes_file(tmp_path: Path) -> None:
+    """``Results.write_oem`` materialises the lazy parse and emits a file."""
+    eph = _write_eph(tmp_path / "E1.oem")
+    result = Results(output_dir=tmp_path, log="", ephemeris_paths={"E1": eph})
+
+    out = result.write_oem("E1", tmp_path / "out.oem")
+
+    assert out == tmp_path / "out.oem"
+    assert out.exists()
+    assert "CCSDS_OEM_VERS" in out.read_text(encoding="utf-8")
+
+
+def test_write_oem_unknown_ephemeris_raises_keyerror(tmp_path: Path) -> None:
+    result = Results(output_dir=tmp_path, log="")
+    with pytest.raises(KeyError):
+        result.write_oem("nope", tmp_path / "out.oem")
+
+
+def test_write_oem_all_writes_one_file_per_ephemeris(tmp_path: Path) -> None:
+    e1 = _write_eph(tmp_path / "E1.oem")
+    e2 = _write_eph(tmp_path / "E2.oem")
+    result = Results(
+        output_dir=tmp_path,
+        log="",
+        ephemeris_paths={"EphemerisFile1": e1, "EphemerisFile2": e2},
+    )
+
+    dest = result.write_oem_all(tmp_path / "out")
+
+    assert dest == tmp_path / "out"
+    assert (dest / "EphemerisFile1.oem").is_file()
+    assert (dest / "EphemerisFile2.oem").is_file()
+
+
+def test_write_oem_all_with_no_ephemerides_creates_empty_dir(tmp_path: Path) -> None:
+    result = Results(output_dir=tmp_path, log="")
+    dest = result.write_oem_all(tmp_path / "empty")
+    assert dest.is_dir()
+    assert list(dest.iterdir()) == []
