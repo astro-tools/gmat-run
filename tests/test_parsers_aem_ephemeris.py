@@ -537,3 +537,31 @@ def test_is_aem_ephemeris_strips_bom(tmp_path: Path) -> None:
     path = tmp_path / "bom.aem"
     path.write_bytes(b"\xef\xbb\xbf" + _QUAT_BASIC.encode("utf-8"))
     assert is_aem_ephemeris(path) is True
+
+
+# --- convert_to -------------------------------------------------------------
+
+
+def test_convert_to_changes_epoch_scale(tmp_path: Path) -> None:
+    """File is TIME_SYSTEM=UTC; convert_to=TAI shifts the Epoch by the leap-second offset."""
+    df = parse(_write(tmp_path / "q.aem", _QUAT_BASIC), convert_to="TAI")
+    assert df.attrs["epoch_scales"] == {"Epoch": "TAI"}
+    # 2026 is past the 2017 leap second, so TAI - UTC = 37 s.
+    assert df["Epoch"].iloc[0] == pd.Timestamp("2026-01-01 12:00:37")
+
+
+def test_convert_to_unrecognised_source_scale_raises(tmp_path: Path) -> None:
+    """A CCSDS TIME_SYSTEM that gmat-run can't convert (e.g. UT1) surfaces a typed error."""
+    content = (
+        _HEADER
+        + _QUAT_META_BASE.replace("TIME_SYSTEM          = UTC", "TIME_SYSTEM          = UT1")
+        + _QUAT_DATA_BASE
+    )
+    with pytest.raises(ValueError, match=r"from_scale"):
+        parse(_write(tmp_path / "ut1.aem", content), convert_to="UTC")
+
+
+def test_convert_to_default_none_keeps_native_scale(tmp_path: Path) -> None:
+    """Regression: the default returns ``Epoch`` in the file's TIME_SYSTEM scale."""
+    df = parse(_write(tmp_path / "q.aem", _QUAT_BASIC))
+    assert df.attrs["epoch_scales"] == {"Epoch": "UTC"}

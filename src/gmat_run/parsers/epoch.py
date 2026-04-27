@@ -7,11 +7,14 @@ the column name's last dotted segment, converts each to ``datetime64[ns]``,
 and records the time scale on ``df.attrs["epoch_scales"]`` so downstream code
 can branch on it without re-parsing the column name.
 
-No leap-second-correct time-scale *conversion* happens here: a
+No leap-second-correct time-scale *conversion* happens by default: a
 ``TAIModJulian`` column becomes a ``datetime64[ns]`` representing the TAI
-instant, labelled ``"TAI"``. For converting between scales (UTC ↔ TAI / TT /
-TDB / A1) on a promoted DataFrame, see :mod:`gmat_run.time`, which is gated
-behind the ``[astropy]`` extra.
+instant, labelled ``"TAI"``. Pass ``convert_to=`` to convert every promoted
+column to a single target scale in one call — that path delegates to
+:mod:`gmat_run.time` and inherits the ``[astropy]`` extra requirement; see
+:func:`promote_epochs` for the details. For ad-hoc conversion of an
+already-promoted DataFrame, call :func:`gmat_run.time.convert_column`
+directly.
 
 Columns whose name ends in ``Gregorian`` or ``ModJulian`` but are not one of
 the ten recognised names trigger a ``UserWarning`` and are left untouched —
@@ -64,7 +67,7 @@ _MODJULIAN_SUFFIXES: Final[dict[str, str]] = {
 _UNKNOWN_EPOCH_SUFFIX_RE: Final = re.compile(r".+(?:Gregorian|ModJulian)$")
 
 
-def promote_epochs(df: pd.DataFrame) -> pd.DataFrame:
+def promote_epochs(df: pd.DataFrame, *, convert_to: str | None = None) -> pd.DataFrame:
     """Promote recognised epoch columns in ``df`` to ``datetime64[ns]`` in place.
 
     The DataFrame is mutated and returned so callers can chain. Time scales for
@@ -80,6 +83,13 @@ def promote_epochs(df: pd.DataFrame) -> pd.DataFrame:
         df: DataFrame whose columns follow GMAT's ``{resource}.{field}``
             naming convention. Columns whose last segment is one of the ten
             recognised epoch suffixes are promoted.
+        convert_to: If set, every column listed in ``df.attrs["epoch_scales"]``
+            after promotion is converted from its detected scale to
+            ``convert_to`` and ``df.attrs["epoch_scales"]`` is updated
+            accordingly. Must be one of ``"A1"``, ``"TAI"``, ``"UTC"``,
+            ``"TT"``, ``"TDB"``. Conversion is delegated to
+            :func:`gmat_run.time.convert_column`, which is gated behind the
+            ``[astropy]`` extra.
 
     Returns:
         ``df`` itself, mutated in place.
@@ -88,6 +98,13 @@ def promote_epochs(df: pd.DataFrame) -> pd.DataFrame:
         GmatOutputParseError: A recognised epoch column contains values that
             cannot be parsed (malformed Gregorian text, non-numeric ModJulian,
             or a ModJulian value that overflows ``datetime64[ns]``'s range).
+        ValueError: ``convert_to`` is set to a value that is not one of the
+            five recognised GMAT scales, or one of the recorded source scales
+            on ``df`` is not recognised (e.g. a CCSDS ``TIME_SYSTEM`` of
+            ``UT1`` or ``GPS``).
+        ImportError: ``convert_to`` is set, a non-trivial conversion is
+            required, and ``astropy`` is not installed. The message points at
+            the ``gmat-run[astropy]`` extra.
     """
     for column in df.columns:
         suffix = _suffix(str(column))
@@ -113,7 +130,24 @@ def promote_epochs(df: pd.DataFrame) -> pd.DataFrame:
                 UserWarning,
                 stacklevel=2,
             )
+    if convert_to is not None:
+        _convert_all_to(df, convert_to)
     return df
+
+
+def _convert_all_to(df: pd.DataFrame, target: str) -> None:
+    """Convert every entry in ``df.attrs["epoch_scales"]`` to ``target`` in place.
+
+    Imports :mod:`gmat_run.time` lazily so the default ``promote_epochs`` path
+    stays astropy-free. ``convert_column`` validates ``target`` and each
+    source scale, and surfaces the ``[astropy]`` install hint when needed.
+    """
+    from gmat_run.time import convert_column
+
+    scales: dict[str, str] = df.attrs.get("epoch_scales", {})
+    # Snapshot the keys: ``convert_column`` mutates this dict as it goes.
+    for column in list(scales):
+        convert_column(df, column, target)
 
 
 def _suffix(column: str) -> str:

@@ -37,6 +37,35 @@ df["Sat.TAIGregorian"] = convert(df["Sat.TAIGregorian"], "TAI", "UTC")
 convert_column(df, "Sat.TAIGregorian", "UTC")
 ```
 
+## Parser-level `convert_to`
+
+For the common case of "I want every epoch column on a single scale", the
+parsers and [`promote_epochs`][gmat_run.parsers.epoch.promote_epochs] take
+a `convert_to=` keyword that runs the conversion in one call:
+
+```python
+from gmat_run.parsers.reportfile import parse
+
+# Mixed-scale ReportFile (TAIGregorian + UTCModJulian) → all UTC.
+df = parse("flyby.report", convert_to="UTC")
+
+assert all(scale == "UTC" for scale in df.attrs["epoch_scales"].values())
+```
+
+The same keyword works on every parser whose output carries an
+`epoch_scales` attr:
+
+- [`gmat_run.parsers.reportfile.parse`][gmat_run.parsers.reportfile.parse]
+- [`gmat_run.parsers.ephemeris.parse`][gmat_run.parsers.ephemeris.parse] (CCSDS-OEM)
+- [`gmat_run.parsers.stk_ephemeris.parse`][gmat_run.parsers.stk_ephemeris.parse]
+- [`gmat_run.parsers.aem_ephemeris.parse`][gmat_run.parsers.aem_ephemeris.parse]
+
+CCSDS-OEM and CCSDS-AEM permit `TIME_SYSTEM` values (`UT1`, `GPS`, `TCG`, …)
+that fall outside the five GMAT scales. Calling these parsers with
+`convert_to=` on such a file raises `ValueError` rather than silently
+mis-converting; reach for the underlying [`convert`][gmat_run.time.convert]
+once you have a mapping you trust.
+
 ::: gmat_run.time.convert
 
 ::: gmat_run.time.convert_column

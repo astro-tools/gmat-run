@@ -35,7 +35,7 @@ __all__ = ["parse"]
 _COLUMN_SEP = re.compile(r"\s{2,}")
 
 
-def parse(path: str | os.PathLike[str]) -> pd.DataFrame:
+def parse(path: str | os.PathLike[str], *, convert_to: str | None = None) -> pd.DataFrame:
     """Parse a GMAT ``ReportFile`` into a :class:`pandas.DataFrame`.
 
     Column names are taken verbatim from the header row (dots preserved, e.g.
@@ -44,6 +44,10 @@ def parse(path: str | os.PathLike[str]) -> pd.DataFrame:
 
     Args:
         path: Path to the ``ReportFile`` on disk.
+        convert_to: If set, every recognised epoch column is converted from
+            its detected scale to ``convert_to`` after promotion. Forwarded
+            to :func:`gmat_run.parsers.epoch.promote_epochs`; see its
+            docstring for the validation and astropy-extra semantics.
 
     Returns:
         A DataFrame with one row per report event and one column per header
@@ -52,6 +56,10 @@ def parse(path: str | os.PathLike[str]) -> pd.DataFrame:
     Raises:
         GmatOutputParseError: The file is empty, or a data row's column count
             does not match the header.
+        ValueError: ``convert_to`` is not one of the five recognised GMAT
+            scales.
+        ImportError: ``convert_to`` is set, a non-trivial conversion is
+            required, and ``astropy`` is not installed.
     """
     path = Path(path)
 
@@ -82,7 +90,7 @@ def parse(path: str | os.PathLike[str]) -> pd.DataFrame:
     df = pd.DataFrame(rows, columns=column_names)
     for column in df.columns:
         df[column] = _coerce_numeric(df[column])
-    return promote_epochs(df)
+    return promote_epochs(df, convert_to=convert_to)
 
 
 def _find_header(lines: list[str], path: Path) -> tuple[int, str]:
