@@ -5,22 +5,6 @@ All notable changes to gmat-run are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Added
-
-- `Results.write_oem(name, path)` and `Results.write_oem_all(dirpath)` emit a
-  CCSDS-OEM (KVN) file from `Results.ephemerides[name]` via `ccsds-ndm`,
-  with a built-in frame-name mapping (`EarthMJ2000Eq` ↔ `EME2000`,
-  `EarthICRF` ↔ `ICRF`, `J2000` ↔ `EME2000`) and rejection of unknown
-  frames or unsupported time systems. Gated behind the `[ccsds-ndm]`
-  extra (#67).
-
-### Changed
-
-- `[ccsds-ndm]` extra floor bumped from `>=2.0` to `>=3.0`; the v3 line
-  is the surface the OEM writer is tested against.
-
 ## [0.2.0] — 2026-04-26
 
 ### Added
