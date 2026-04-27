@@ -35,6 +35,7 @@ dependencies = [
 
 [project.optional-dependencies]
 astropy = ["astropy>=6.0"]
+ccsds-ndm = ["ccsds-ndm>=2.0"]
 examples = ["matplotlib>=3.8"]
 spiceypy = ["spiceypy>=6.0"]
 
@@ -53,6 +54,8 @@ dev = [
   "ruff>=0.6",
   "mypy>=1.11",
   "pandas-stubs",
+  "astropy>=6.0",
+  "ccsds-ndm>=2.0",
   "spiceypy>=6.0",
 ]
 docs = [

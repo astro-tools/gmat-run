@@ -216,3 +216,19 @@ jobs:
           cache-dependency-glob: uv.lock
       - run: uv sync --all-groups
       - run: uv run mypy
+
+  # Smoke-check that `pip install gmat-run` (no extras, no dev group) imports
+  # cleanly. Catches an extras-only dependency leaking into the default install
+  # path. The full test job above already exercises every extra via the dev
+  # group; this is a small canary, not a matrix concern.
+  minimal-install:
+    name: minimal install smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install .
+      - run: python -c "import gmat_run"
