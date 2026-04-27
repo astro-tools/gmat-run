@@ -83,6 +83,23 @@ def test_originator_kwarg_overrides_default(tmp_path: Path) -> None:
     assert "ACME Aerospace" in text
 
 
+def test_emits_ccsds_oem_vers_1_0_for_gmat_compat(tmp_path: Path) -> None:
+    """GMAT R2026a's CCSDS-OEM reader only accepts ``CCSDS_OEM_VERS = 1.0``
+    in production: ``3.0`` (the ccsds-ndm default) is rejected and ``2.0``
+    is gated behind a TESTING-mode runtime flag. ccsds-ndm 3.x cannot
+    serialise v1.0 itself (its mapping table registers v2/v3 only), so the
+    writer emits via ccsds-ndm at v2.0 and post-processes the version line
+    down to v1.0. This regression test fails loudly if a future ccsds-ndm
+    bump silently restores the v3.0 default or breaks the rewrite assumption.
+    """
+    df = _hand_built_oem_frame()
+    out = write_oem(df, tmp_path / "out.oem")
+    text = out.read_text(encoding="utf-8")
+    assert "CCSDS_OEM_VERS           = 1.0" in text
+    assert "CCSDS_OEM_VERS           = 2.0" not in text
+    assert "CCSDS_OEM_VERS           = 3.0" not in text
+
+
 def test_object_name_kwarg_overrides_attr(tmp_path: Path) -> None:
     df = _hand_built_oem_frame()
     df.attrs["object_name"] = "Sat"
