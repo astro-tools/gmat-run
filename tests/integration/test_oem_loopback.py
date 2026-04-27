@@ -114,9 +114,7 @@ RF.Add = {{EphSat.{coordinate_system}.X, EphSat.{coordinate_system}.Y, ...
     EphSat.{coordinate_system}.VY, EphSat.{coordinate_system}.VZ}}
 
 BeginMissionSequence
-While EphSat.ElapsedSecs < 21000
-   Propagate EphProp(EphSat) {{EphSat.ElapsedSecs = 600}}
-EndWhile
+Propagate EphProp(EphSat) {{EphSat.ElapsedSecs = 21000}}
 """
 
 
