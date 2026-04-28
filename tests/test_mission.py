@@ -614,6 +614,140 @@ class TestWriteCoercion:
         assert mission["TOI.Element1"] == 0.5
 
 
+# --- numpy normalization ------------------------------------------------------
+
+
+class TestNumpyCoercion:
+    """`_coerce` strips numpy scalars/arrays before type-checking.
+
+    Notebook users routinely pass numpy values without converting; the
+    alternative was a `type mismatch` error for what looks like a valid
+    number or array. After normalization the rest of `_coerce` runs against
+    native Python types unchanged.
+    """
+
+    def test_real_accepts_numpy_float64(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["Sat.SMA"] = np.float64(7100.5)
+        assert mission["Sat.SMA"] == 7100.5
+
+    def test_real_accepts_numpy_int64(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["Sat.SMA"] = np.int64(7000)
+        assert mission["Sat.SMA"] == 7000.0
+
+    def test_real_rejects_numpy_bool(self, mission: Mission) -> None:
+        # np.bool_ → Python bool via .item(); the existing bool-trap guard
+        # then rejects it for a real field.
+        import numpy as np
+
+        with pytest.raises(GmatFieldError):
+            mission["Sat.SMA"] = np.bool_(True)
+
+    def test_integer_accepts_numpy_int64(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["Sat.OrbitColor"] = np.int64(128)
+        assert mission["Sat.OrbitColor"] == 128
+
+    def test_boolean_accepts_numpy_bool(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["TOI.DecrementMass"] = np.bool_(True)
+        assert mission["TOI.DecrementMass"] is True
+
+    def test_string_array_accepts_numpy_array_of_strings(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["Sat.Tanks"] = np.array(["A", "B"])
+        assert mission["Sat.Tanks"] == ["A", "B"]
+
+    def test_rvector_accepts_numpy_array(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["Sat.EulerAngles"] = np.array([1.0, 2.5, 3.0])
+        assert mission["Sat.EulerAngles"] == [1.0, 2.5, 3.0]
+
+    def test_rvector_accepts_list_with_numpy_scalars(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["Sat.EulerAngles"] = [np.float64(1.0), np.int64(2), 3.0]
+        assert mission["Sat.EulerAngles"] == [1.0, 2.0, 3.0]
+
+    def test_rmatrix_accepts_2d_numpy_array(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["Sat.Covariance"] = np.array([[1.0, 2.0], [3.0, 4.0]])
+        assert mission["Sat.Covariance"] == [[1.0, 2.0], [3.0, 4.0]]
+
+
+# --- override recording -------------------------------------------------------
+
+
+class TestOverrideRecording:
+    """`__setitem__` mirrors every successful write into ``Mission._overrides``.
+
+    The recorded value is post-`_coerce`, so it's always a JSON-native Python
+    type — that's the contract the subprocess timeout path relies on.
+    """
+
+    def test_overrides_starts_empty(self, mission: Mission) -> None:
+        assert mission._overrides == {}
+
+    def test_overrides_records_real(self, mission: Mission) -> None:
+        mission["Sat.SMA"] = 7100.5
+        assert mission._overrides == {"Sat.SMA": 7100.5}
+
+    def test_overrides_records_post_coerce_value(self, mission: Mission) -> None:
+        # int input to a real field is stored as float, not the original int.
+        mission["Sat.SMA"] = 7100
+        assert mission._overrides["Sat.SMA"] == 7100.0
+        assert isinstance(mission._overrides["Sat.SMA"], float)
+
+    def test_overrides_records_string_array(self, mission: Mission) -> None:
+        mission["Sat.Tanks"] = ["A", "B"]
+        assert mission._overrides == {"Sat.Tanks": ["A", "B"]}
+
+    def test_overrides_records_rvector(self, mission: Mission) -> None:
+        mission["Sat.EulerAngles"] = [1, 2.5, 3]
+        assert mission._overrides == {"Sat.EulerAngles": [1.0, 2.5, 3.0]}
+
+    def test_overrides_records_rmatrix(self, mission: Mission) -> None:
+        mission["Sat.Covariance"] = [[1, 2], [3, 4]]
+        assert mission._overrides == {"Sat.Covariance": [[1.0, 2.0], [3.0, 4.0]]}
+
+    def test_overrides_records_numpy_input_as_native(self, mission: Mission) -> None:
+        # The recorded value goes through _strip_numpy + _coerce, so it must
+        # be JSON-native — no numpy objects leak into _overrides.
+        import json
+
+        import numpy as np
+
+        mission["Sat.SMA"] = np.float64(7000.0)
+        mission["Sat.EulerAngles"] = np.array([1.0, 2.0, 3.0])
+        mission["Sat.Covariance"] = np.array([[1.0, 2.0], [3.0, 4.0]])
+        # json.dumps round-trips iff every value is native JSON-compatible.
+        assert json.loads(json.dumps(mission._overrides)) == mission._overrides
+
+    def test_overrides_overwrites_on_subsequent_setitem(self, mission: Mission) -> None:
+        mission["Sat.SMA"] = 7100.0
+        mission["Sat.SMA"] = 7200.0
+        assert mission._overrides == {"Sat.SMA": 7200.0}
+
+    def test_overrides_not_populated_on_coerce_failure(self, mission: Mission) -> None:
+        with pytest.raises(GmatFieldError):
+            mission["Sat.SMA"] = "not a number"
+        assert "Sat.SMA" not in mission._overrides
+
+    def test_overrides_not_populated_on_engine_rejection(self, mission: Mission) -> None:
+        # Read-only fields raise inside SetField; nothing is recorded.
+        with pytest.raises(GmatFieldError):
+            mission["Sat.CartesianX"] = 100.0
+        assert "Sat.CartesianX" not in mission._overrides
+
+
 # --- error paths --------------------------------------------------------------
 
 

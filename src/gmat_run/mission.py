@@ -30,6 +30,7 @@ from pathlib import Path
 from types import MappingProxyType, ModuleType
 from typing import Any, Final
 
+import numpy as np
 import pandas as pd
 
 from gmat_run.errors import GmatFieldError, GmatLoadError, GmatRunError
@@ -118,6 +119,7 @@ class Mission:
     _type_map: dict[int, str]
     _attitude_input_paths: dict[str, Path] | None
     _attitude_inputs: _LazyAttitudeInputs | None
+    _overrides: dict[str, Any]
 
     def __init__(
         self,
@@ -137,6 +139,10 @@ class Mission:
         # snapshot at first access matches the rest of the surface.
         self._attitude_input_paths = None
         self._attitude_inputs = None
+        # Records every successful __setitem__ as ``{dotted: coerced}``. The
+        # value is post-_coerce, so it's always a JSON-native Python type and
+        # can be shipped to a child process verbatim.
+        self._overrides = {}
 
     @classmethod
     def load(
@@ -257,6 +263,7 @@ class Mission:
                 dotted,
                 value,
             ) from exc
+        self._overrides[dotted] = coerced
 
     def run(
         self,
@@ -617,6 +624,11 @@ class Mission:
         return str(obj.GetField(field))
 
     def _coerce(self, type_code: int, value: Any, dotted: str) -> Any:
+        # Strip numpy first so the type checks below see native Python types.
+        # Notebook users routinely pass np.float64 / np.int64 / np.bool_ /
+        # ndarray without thinking — the alternative is a confusing rejection
+        # for what looks like a valid number/array.
+        value = _strip_numpy(value)
         kind = self._type_map.get(type_code, "string")
         if kind == "real":
             if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -671,6 +683,27 @@ class Mission:
 
 
 # --- module-level helpers -----------------------------------------------------
+
+
+def _strip_numpy(value: Any) -> Any:
+    """Recursively convert numpy scalars/arrays into native Python types.
+
+    Handles three shapes the issue commits to: ``numpy.bool_`` / numpy scalar
+    dtypes (via ``.item()``), ``numpy.ndarray`` (via ``.tolist()``, which
+    recursively yields native types), and Python lists/tuples that may
+    contain numpy elements (walk and convert in place). Anything else is
+    returned untouched so the rest of ``_coerce``'s type checks fire as
+    written.
+    """
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, list):
+        return [_strip_numpy(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_strip_numpy(v) for v in value)
+    return value
 
 
 def _split_path(dotted: str, *, value: Any = None) -> tuple[str, str]:
