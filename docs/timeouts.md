@@ -72,10 +72,6 @@ with run_with_timeout("flyby.script", {"Sat.SMA": 7000}, timeout=60) as ws:
     # ...do whatever you need with df before leaving the block
 ```
 
-The caller already knows the script's output filenames, so they read directly
-out of the workspace — no need to round-trip a file mapping through the
-subprocess.
-
 ## How it works
 
 - `subprocess.run(timeout=...)` does the cross-platform kill: `SIGTERM` on
