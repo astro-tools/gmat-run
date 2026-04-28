@@ -69,7 +69,7 @@ but you cannot ask GMAT to *emit* an AEM trace of a propagated spacecraft.
 ## Parser format restrictions
 
 The parsers in [`gmat_run.parsers`](reference/parsers.md) cover the formats
-GMAT actually emits in v0.2; uncommon variants are rejected with
+GMAT actually emits in v0.3; uncommon variants are rejected with
 [`GmatOutputParseError`][gmat_run.GmatOutputParseError] rather than silently
 guessed at.
 

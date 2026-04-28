@@ -5,6 +5,48 @@ All notable changes to gmat-run are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-04-28
+
+### Added
+
+- CCSDS-OEM export — `Results.write_oem(name, path)` writes any ephemeris
+  DataFrame in `Results.ephemerides` as a CCSDS-OEM file, gated behind the
+  new `[ccsds-ndm]` extra (#67). A CI-enforced golden round-trip pins the
+  writer against GMAT's own OEM output (#68).
+- Time-scale conversion — `gmat_run.time` routes A1 / TAI / UTC / TT / TDB
+  epochs through `astropy.time.Time` (leap-second-correct), gated behind
+  the new `[astropy]` extra (#65). `promote_epochs(..., convert_to=...)`
+  and the matching keyword on the four file-format parsers compose the
+  conversion into a single DataFrame access (#66).
+- Hardened explicit workspaces — `Mission.run(working_dir=...)` now handles
+  pre-existing artefacts (with `overwrite=True` for re-runs into a populated
+  workspace), absolute `Filename` fields in the script, and permission
+  errors, surfacing each as a typed `GmatRunError` (#69).
+- New optional extras `[ccsds-ndm]` and `[astropy]`, documented in the
+  README install table (#64).
+- Example notebooks, runnable end-to-end and rendered into the docs site:
+  export an ephemeris to CCSDS-OEM (#70), and time-scale conversion across
+  a leap-second boundary (#71).
+- Wall-clock timeout cookbook page (`docs/timeouts.md`) — a subprocess
+  recipe for capping `Mission.run` from caller code, with a cross-link
+  from "Known limitations".
+
+### Changed
+
+- `Mission.__setitem__` accepts numpy scalars (`np.float64`, `np.int_`,
+  `np.bool_`) and `np.ndarray` directly. Previously the call site had to
+  do `float(...)` / `.tolist()` first (#85).
+
+### Fixed
+
+- `gmat_run.time.convert(..., to_scale="UTC")` (and transitively
+  `convert_column`, `promote_epochs(..., convert_to=)`, and the parser-level
+  `convert_to=` keyword) raised `ValueError` from astropy's
+  `Time.utc.datetime64` accessor on epochs landing exactly on a leap-second
+  instant. Non-leap rows keep nanosecond precision; leap-second rows fall
+  back to microsecond precision and are pinned to the post-jump second to
+  match GMAT's labelling convention (#80, #81).
+
 ## [0.2.0] — 2026-04-26
 
 ### Added
@@ -65,6 +107,7 @@ Initial public release.
 - Release workflow: build, PyPI trusted publishing, and
   `gh release create --generate-notes` on `v*` tags (#31).
 
+[0.3.0]: https://github.com/astro-tools/gmat-run/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/astro-tools/gmat-run/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/astro-tools/gmat-run/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/astro-tools/gmat-run/releases/tag/v0.1.0

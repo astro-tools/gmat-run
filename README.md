@@ -52,8 +52,8 @@ the dependency it pulls in:
 | Extra | Pulls in | Unlocks |
 |---|---|---|
 | `[spiceypy]` | `spiceypy` | SPK (NASA SPICE binary) ephemeris parsing. |
-| `[ccsds-ndm]` | `ccsds-ndm` | CCSDS-OEM export (lands in v0.3 — see [#67](https://github.com/astro-tools/gmat-run/issues/67)). |
-| `[astropy]` | `astropy` | Leap-second-correct time-scale conversion (lands in v0.3 — see [#65](https://github.com/astro-tools/gmat-run/issues/65)). |
+| `[ccsds-ndm]` | `ccsds-ndm` | CCSDS-OEM export via `Results.write_oem`. |
+| `[astropy]` | `astropy` | Leap-second-correct time-scale conversion via `gmat_run.time`. |
 
 Install one or more at once:
 
@@ -111,7 +111,8 @@ and sample output.
   to `datetime64[ns]`.
 - **`EphemerisFile`** → DataFrame, dispatching on file format: **CCSDS-OEM** and
   **STK-TimePosVel** are read out of the box; **SPK** (NASA SPICE binary) is read with the
-  `[spiceypy]` extra installed. **Code-500** (GSFC binary) is tracked for v0.3 (#50).
+  `[spiceypy]` extra installed. **Code-500** (GSFC binary) is not implemented —
+  see [Known limitations](https://astro-tools.github.io/gmat-run/known-limitations/).
 - **`ContactLocator`** → DataFrame, supporting Legacy and the five tabular `ReportFormat`
   variants. `df.attrs["report_format"]` carries the variant name so downstream code can
   branch on it without inspecting the column set.
