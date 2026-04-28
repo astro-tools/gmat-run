@@ -472,6 +472,22 @@ def test_gmat_property_is_read_only(mission: Mission) -> None:
         mission.gmat = object()  # type: ignore[misc, assignment]
 
 
+def test_gmat_property_access_flips_gmat_accessed_flag(mission: Mission) -> None:
+    assert mission._gmat_accessed is False
+    _ = mission.gmat
+    assert mission._gmat_accessed is True
+
+
+def test_gmat_accessed_flag_is_one_shot(mission: Mission) -> None:
+    # Once flipped, the flag stays True regardless of subsequent setitem
+    # calls — any access makes the override set incomplete from the child's
+    # point of view, and we don't try to be clever about "since the last
+    # supported mutation".
+    _ = mission.gmat
+    mission["Sat.SMA"] = 7100.0
+    assert mission._gmat_accessed is True
+
+
 # --- read path: type dispatch (Spacecraft / Propagator / ImpulsiveBurn) -------
 
 

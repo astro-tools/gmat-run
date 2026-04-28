@@ -120,6 +120,7 @@ class Mission:
     _attitude_input_paths: dict[str, Path] | None
     _attitude_inputs: _LazyAttitudeInputs | None
     _overrides: dict[str, Any]
+    _gmat_accessed: bool
 
     def __init__(
         self,
@@ -143,6 +144,13 @@ class Mission:
         # value is post-_coerce, so it's always a JSON-native Python type and
         # can be shipped to a child process verbatim.
         self._overrides = {}
+        # One-shot flag: set the first time the ``gmat`` property is touched
+        # and never cleared. ``run(timeout=...)`` reads this to decide whether
+        # to warn that escape-hatch mutations may not survive the subprocess
+        # re-load. We deliberately don't track "since last __setitem__" — any
+        # access at all makes the override set incomplete from the child's
+        # point of view.
+        self._gmat_accessed = False
 
     @classmethod
     def load(
@@ -237,6 +245,7 @@ class Mission:
         stable public surface — the documented contract is the dotted-path
         ``__getitem__`` / ``__setitem__`` interface.
         """
+        self._gmat_accessed = True
         return self._gmat
 
     def __getitem__(self, dotted: str) -> Any:
