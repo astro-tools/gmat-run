@@ -5,6 +5,14 @@ a heads-up. Most items are intentional — they fall out of the underlying
 `gmatpy` runtime or the GMAT script semantics — and gmat-run does not try to
 paper over them.
 
+## No built-in wall-clock timeout
+
+[`Mission.run`][gmat_run.Mission.run] does not take a `timeout=` keyword. A
+divergent solver or hung subscriber blocks the calling Python process until
+the kernel is restarted. The library deliberately stops at that line — see
+[Wall-clock timeouts](timeouts.md) for a 25-line subprocess recipe that gives
+you the cap on the caller's side.
+
 ## gmatpy single-init constraint
 
 `gmatpy` cannot be cleanly reinitialised once it has been loaded into a Python
