@@ -37,6 +37,7 @@ nav:
   - Getting started: getting-started.md
   - Install GMAT: install-gmat.md
   - Working directories: working-directories.md
+  - Wall-clock timeouts: timeouts.md
   - CLI usage: cli.md
   - Examples:
       - examples/index.md
