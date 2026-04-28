@@ -134,6 +134,9 @@ Runnable example notebooks:
 - [Ground track](https://astro-tools.github.io/gmat-run/examples/03_ground_track/) — read an
   `EphemerisFile` from `Results.ephemerides` and plot the spacecraft's ground track on a
   Cartopy world map.
+- [Export to CCSDS-OEM](https://astro-tools.github.io/gmat-run/examples/04_export_oem/) —
+  run a stock GMAT sample that emits an STK ephemeris, convert it to a CCSDS-OEM file
+  with `Results.write_oem`, re-parse the result, and visualise the trajectory in 3D.
 
 ## Development
 
