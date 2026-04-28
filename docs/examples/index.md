@@ -17,3 +17,8 @@ locally after `pip install gmat-run[examples]` and the matplotlib dependency.
   an STK ephemeris, convert it to a CCSDS-OEM file with
   [`Results.write_oem`][gmat_run.Results], re-parse the result, and visualise the
   trajectory in 3D.
+- [Time-scale conversion](05_time_scales.ipynb) — propagate across the 2017-01-01
+  leap-second boundary and convert the resulting ReportFile's epoch columns
+  between A1, TAI, UTC, TT, and TDB with
+  [`gmat_run.time.convert`][gmat_run.time.convert] and the parser-level
+  `convert_to=` keyword.

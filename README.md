@@ -137,6 +137,10 @@ Runnable example notebooks:
 - [Export to CCSDS-OEM](https://astro-tools.github.io/gmat-run/examples/04_export_oem/) —
   run a stock GMAT sample that emits an STK ephemeris, convert it to a CCSDS-OEM file
   with `Results.write_oem`, re-parse the result, and visualise the trajectory in 3D.
+- [Time-scale conversion](https://astro-tools.github.io/gmat-run/examples/05_time_scales/) —
+  propagate across the 2017-01-01 leap-second boundary and convert the resulting
+  ReportFile's epoch columns between A1, TAI, UTC, TT, and TDB with `gmat_run.time`
+  and the parser-level `convert_to=` keyword.
 
 ## Development
 
