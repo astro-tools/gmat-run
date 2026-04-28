@@ -614,6 +614,75 @@ class TestWriteCoercion:
         assert mission["TOI.Element1"] == 0.5
 
 
+# --- numpy normalization ------------------------------------------------------
+
+
+class TestNumpyCoercion:
+    """`_coerce` strips numpy scalars/arrays before type-checking.
+
+    Notebook users routinely pass numpy values without converting; the
+    alternative was a `type mismatch` error for what looks like a valid
+    number or array. After normalization the rest of `_coerce` runs against
+    native Python types unchanged.
+    """
+
+    def test_real_accepts_numpy_float64(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["Sat.SMA"] = np.float64(7100.5)
+        assert mission["Sat.SMA"] == 7100.5
+
+    def test_real_accepts_numpy_int64(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["Sat.SMA"] = np.int64(7000)
+        assert mission["Sat.SMA"] == 7000.0
+
+    def test_real_rejects_numpy_bool(self, mission: Mission) -> None:
+        # np.bool_ → Python bool via .item(); the existing bool-trap guard
+        # then rejects it for a real field.
+        import numpy as np
+
+        with pytest.raises(GmatFieldError):
+            mission["Sat.SMA"] = np.bool_(True)
+
+    def test_integer_accepts_numpy_int64(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["Sat.OrbitColor"] = np.int64(128)
+        assert mission["Sat.OrbitColor"] == 128
+
+    def test_boolean_accepts_numpy_bool(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["TOI.DecrementMass"] = np.bool_(True)
+        assert mission["TOI.DecrementMass"] is True
+
+    def test_string_array_accepts_numpy_array_of_strings(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["Sat.Tanks"] = np.array(["A", "B"])
+        assert mission["Sat.Tanks"] == ["A", "B"]
+
+    def test_rvector_accepts_numpy_array(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["Sat.EulerAngles"] = np.array([1.0, 2.5, 3.0])
+        assert mission["Sat.EulerAngles"] == [1.0, 2.5, 3.0]
+
+    def test_rvector_accepts_list_with_numpy_scalars(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["Sat.EulerAngles"] = [np.float64(1.0), np.int64(2), 3.0]
+        assert mission["Sat.EulerAngles"] == [1.0, 2.0, 3.0]
+
+    def test_rmatrix_accepts_2d_numpy_array(self, mission: Mission) -> None:
+        import numpy as np
+
+        mission["Sat.Covariance"] = np.array([[1.0, 2.0], [3.0, 4.0]])
+        assert mission["Sat.Covariance"] == [[1.0, 2.0], [3.0, 4.0]]
+
+
 # --- error paths --------------------------------------------------------------
 
 
