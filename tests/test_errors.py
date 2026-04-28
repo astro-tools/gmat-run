@@ -18,6 +18,7 @@ from gmat_run.errors import (
     GmatNotFoundError,
     GmatOutputParseError,
     GmatRunError,
+    GmatTimeoutError,
 )
 
 _CONCRETE_CLASSES = [
@@ -26,6 +27,7 @@ _CONCRETE_CLASSES = [
     GmatRunError,
     GmatOutputParseError,
     GmatFieldError,
+    GmatTimeoutError,
 ]
 
 
@@ -93,3 +95,36 @@ def test_gmat_field_error_defaults_value_to_none_for_reads() -> None:
 def test_gmat_field_error_preserves_arbitrary_value_types(value: object) -> None:
     exc = GmatFieldError("type mismatch", "Sat.SMA", value)
     assert exc.value == value
+
+
+# --- GmatTimeoutError ---------------------------------------------------------
+
+
+def test_gmat_timeout_error_subclasses_gmat_run_error() -> None:
+    # Callers that branch on "the run failed" must still match a timeout.
+    assert issubclass(GmatTimeoutError, GmatRunError)
+
+
+def test_gmat_timeout_error_preserves_payload() -> None:
+    exc = GmatTimeoutError(
+        "mission run exceeded 2.0 s timeout",
+        "GMAT: integrating step 12345...\n",
+        requested_timeout=2.0,
+        elapsed=2.7,
+    )
+    assert exc.requested_timeout == 2.0
+    assert exc.elapsed == 2.7
+    assert exc.log == "GMAT: integrating step 12345...\n"
+    assert exc.path is None
+    assert str(exc) == "mission run exceeded 2.0 s timeout"
+
+
+def test_gmat_timeout_error_accepts_empty_log() -> None:
+    # The kill may race the workspace teardown; an empty log is normal.
+    exc = GmatTimeoutError(
+        "killed",
+        "",
+        requested_timeout=1.0,
+        elapsed=1.5,
+    )
+    assert exc.log == ""

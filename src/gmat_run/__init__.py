@@ -7,6 +7,7 @@ from gmat_run.errors import (
     GmatNotFoundError,
     GmatOutputParseError,
     GmatRunError,
+    GmatTimeoutError,
 )
 from gmat_run.install import GmatInstall, locate_gmat
 from gmat_run.mission import Mission
@@ -23,6 +24,7 @@ __all__ = [
     "GmatNotFoundError",
     "GmatOutputParseError",
     "GmatRunError",
+    "GmatTimeoutError",
     "Mission",
     "Results",
     "__version__",

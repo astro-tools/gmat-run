@@ -92,3 +92,31 @@ class GmatFieldError(GmatError):
         self.path = path
         self.value = value
         super().__init__(message)
+
+
+class GmatTimeoutError(GmatRunError):
+    """Raised when ``Mission.run(timeout=...)`` exceeds its wall-clock cap.
+
+    A subclass of :class:`GmatRunError` so callers that already branch on
+    "the run failed" keep working — narrower handlers can catch this first
+    to distinguish a timeout from an engine-side failure.
+
+    Carries the ``requested_timeout`` (the cap the caller asked for, in
+    seconds) and ``elapsed`` (the wall-clock time the parent observed before
+    killing the child). The inherited ``log`` carries any partial GMAT log
+    content readable from the workspace at kill time, or ``""`` if nothing
+    was salvageable. ``path`` is unset — a timeout is not wired to a
+    specific filesystem location.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        log: str,
+        *,
+        requested_timeout: float,
+        elapsed: float,
+    ) -> None:
+        self.requested_timeout = requested_timeout
+        self.elapsed = elapsed
+        super().__init__(message, log=log)
