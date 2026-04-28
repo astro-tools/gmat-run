@@ -1,19 +1,14 @@
 # Wall-clock timeouts
 
 [`Mission.run`][gmat_run.Mission.run] does not take a `timeout=` keyword. A
-divergent solver, a bad fixture, or a hung subscriber can therefore block the
-calling Python process indefinitely — short of restarting the kernel, there is
-no way out from inside the same interpreter.
+divergent solver or a hung subscriber will block the calling Python process
+until the interpreter is restarted.
 
-The library deliberately stops at that line: a built-in subprocess driver was
-prototyped in [#84](https://github.com/astro-tools/gmat-run/pull/84) and rejected
-in [#73](https://github.com/astro-tools/gmat-run/issues/73) on cost/benefit
-grounds. The use case is narrow (real GMAT runs are slow, not hung), and the
-~25-line subprocess recipe below covers it without dragging cross-platform
-process management into the library.
-
-If you actually need a wall-clock cap, lift the snippet below into your own
-code.
+The library doesn't ship a built-in cap because the use case is narrow — real
+GMAT runs are slow, not hung — and a short subprocess recipe covers it
+cleanly without dragging cross-platform process management into the library.
+If you need a wall-clock cap on a mission run, lift the snippet below into
+your own code.
 
 ## Recipe
 
@@ -106,5 +101,5 @@ subprocess.
   C++ call, so Python signals never fire. The subprocess split is what makes
   the cap real.
 - **JSON-only overrides.** `Mission["Sat.OrbitState"] = np.array([...])`
-  works in-process (PR #85) but the array has to be pre-converted to a list
-  before crossing the subprocess boundary here.
+  works in-process, but the array has to be pre-converted to a list before
+  crossing the subprocess boundary here.
