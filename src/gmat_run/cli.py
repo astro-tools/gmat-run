@@ -19,6 +19,7 @@ from gmat_run.errors import (
     GmatNotFoundError,
     GmatOutputParseError,
     GmatRunError,
+    GmatTimeoutError,
 )
 from gmat_run.mission import Mission
 
@@ -36,6 +37,7 @@ EXIT_NOT_FOUND = 2
 EXIT_LOAD = 3
 EXIT_RUN = 4
 EXIT_PARSE = 5
+EXIT_TIMEOUT = 6
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -53,7 +55,12 @@ def main(argv: list[str] | None = None) -> int:
         from gmat_run._subprocess import child_main
 
         return child_main()
-    return _run(script=args.script, out=args.out, gmat_root=args.gmat_root)
+    return _run(
+        script=args.script,
+        out=args.out,
+        gmat_root=args.gmat_root,
+        timeout=args.timeout,
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -89,6 +96,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to the GMAT install. Overrides discovery and $GMAT_ROOT.",
     )
+    run_parser.add_argument(
+        "--timeout",
+        metavar="SECONDS",
+        type=float,
+        default=None,
+        help=(
+            "Cap the run at SECONDS wall-clock. Mission runs in a child "
+            "process and is killed on timeout (exit code 6). Without this "
+            "flag the run is in-process with no cap."
+        ),
+    )
     # Hidden child-process entry point used by Mission.run(timeout=...). Not
     # part of the public CLI surface — it reads a JSON payload on stdin and
     # writes a status JSON on stdout. ``help=SUPPRESS`` alone leaks
@@ -101,10 +119,16 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run(*, script: str, out: str | None, gmat_root: str | None) -> int:
+def _run(
+    *,
+    script: str,
+    out: str | None,
+    gmat_root: str | None,
+    timeout: float | None,
+) -> int:
     try:
         mission = Mission.load(script, gmat_root=gmat_root)
-        result = mission.run()
+        result = mission.run(timeout=timeout)
         if out is not None:
             result.persist(out)
         _print_summary(
@@ -119,6 +143,11 @@ def _run(*, script: str, out: str | None, gmat_root: str | None) -> int:
     except GmatLoadError as exc:
         print(f"gmat-run: {exc}", file=sys.stderr)
         return EXIT_LOAD
+    # GmatTimeoutError is a GmatRunError subclass — catch it first so the
+    # narrower mapping wins.
+    except GmatTimeoutError as exc:
+        print(f"gmat-run: {exc}", file=sys.stderr)
+        return EXIT_TIMEOUT
     except GmatRunError as exc:
         print(f"gmat-run: {exc}", file=sys.stderr)
         return EXIT_RUN

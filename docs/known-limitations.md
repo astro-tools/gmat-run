@@ -83,6 +83,20 @@ guessed at.
   stock R2026a sample missions through this format, and no public tooling
   decodes it; out of scope unless a user need surfaces.
 
+## `Mission.gmat` mutations do not survive `run(timeout=...)`
+
+The [`Mission.gmat`][gmat_run.Mission.gmat] escape hatch lets callers reach
+raw `gmatpy` for graph-level mutations that the dotted-path interface does
+not cover. Those mutations are *not* recorded as overrides — only writes
+through [`Mission.__setitem__`][gmat_run.Mission] are — so they cannot be
+replayed when [`Mission.run`][gmat_run.Mission.run] is called with `timeout=`,
+which executes in a child process that re-loads the script from disk.
+
+A `UserWarning` fires when `timeout=` is passed on a `Mission` whose `gmat`
+property has been touched. If the escape-hatch mutations matter for your
+run, drop the `timeout=` and execute in-process. See [Timeouts](timeouts.md)
+for the full discussion.
+
 ## Epoch promotion is not a time-scale conversion
 
 [`gmat_run.parsers.epoch.promote_epochs`][gmat_run.parsers.epoch.promote_epochs]

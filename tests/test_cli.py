@@ -22,6 +22,7 @@ from gmat_run.errors import (
     GmatNotFoundError,
     GmatOutputParseError,
     GmatRunError,
+    GmatTimeoutError,
 )
 
 # --- fakes -------------------------------------------------------------------
@@ -51,6 +52,7 @@ class _FakeMission:
     """Mission stand-in that records ``load`` arguments and returns a result."""
 
     last_load: tuple[str, str | None] | None = None
+    last_run_timeout: float | None = None
     next_result: _FakeResult | None = None
     load_raises: BaseException | None = None
     run_raises: BaseException | None = None
@@ -66,7 +68,8 @@ class _FakeMission:
             raise load_raises
         return cls(path)
 
-    def run(self) -> _FakeResult:
+    def run(self, *, timeout: float | None = None) -> _FakeResult:
+        type(self).last_run_timeout = timeout
         run_raises = type(self).run_raises
         if run_raises is not None:
             raise run_raises
@@ -78,11 +81,13 @@ class _FakeMission:
 @pytest.fixture(autouse=True)
 def _reset_fake() -> Iterator[None]:
     _FakeMission.last_load = None
+    _FakeMission.last_run_timeout = None
     _FakeMission.next_result = None
     _FakeMission.load_raises = None
     _FakeMission.run_raises = None
     yield
     _FakeMission.last_load = None
+    _FakeMission.last_run_timeout = None
     _FakeMission.next_result = None
     _FakeMission.load_raises = None
     _FakeMission.run_raises = None
@@ -225,6 +230,29 @@ def test_run_passes_gmat_root_to_load(
     assert patch_mission.last_load == ("flyby.script", "/opt/gmat-R2026a")
 
 
+def test_run_without_timeout_passes_none(
+    patch_mission: type[_FakeMission],
+    tmp_path: Path,
+) -> None:
+    patch_mission.next_result = _FakeResult(tmp_path)
+
+    cli.main(["run", "flyby.script"])
+
+    assert patch_mission.last_run_timeout is None
+
+
+def test_run_passes_timeout_to_mission(
+    patch_mission: type[_FakeMission],
+    tmp_path: Path,
+) -> None:
+    patch_mission.next_result = _FakeResult(tmp_path)
+
+    code = cli.main(["run", "flyby.script", "--timeout", "30"])
+
+    assert code == cli.EXIT_OK
+    assert patch_mission.last_run_timeout == 30.0
+
+
 # --- exit-code mapping -------------------------------------------------------
 
 
@@ -263,6 +291,26 @@ def test_gmat_run_error_maps_to_exit_4(
 
     assert code == cli.EXIT_RUN == 4
     assert "solver did not converge" in capsys.readouterr().err
+
+
+def test_gmat_timeout_error_maps_to_exit_6(
+    patch_mission: type[_FakeMission],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # GmatTimeoutError is a GmatRunError subclass; the CLI must catch it
+    # first so the narrower exit code (6) wins over the generic 4.
+    patch_mission.run_raises = GmatTimeoutError(
+        "mission run exceeded 2.0 s timeout",
+        log="partial\n",
+        requested_timeout=2.0,
+        elapsed=2.5,
+    )
+
+    code = cli.main(["run", "flyby.script", "--timeout", "2"])
+
+    assert code == cli.EXIT_TIMEOUT == 6
+    assert "exceeded 2.0 s timeout" in capsys.readouterr().err
 
 
 def test_gmat_output_parse_error_maps_to_exit_5(

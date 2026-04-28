@@ -244,6 +244,15 @@ class Mission:
         Escape hatch for callers that need raw SWIG access. Not part of the
         stable public surface — the documented contract is the dotted-path
         ``__getitem__`` / ``__setitem__`` interface.
+
+        **Mutations through this escape hatch do not survive
+        :meth:`run` ``(timeout=...)``.** Only writes that go through
+        ``__setitem__`` are recorded in the override set the parent ships
+        to the child process; raw graph mutations are lost when the child
+        re-loads the script from disk. Touching this property flips a flag
+        that causes ``run(timeout=...)`` to emit a :class:`UserWarning`
+        flagging the override set as incomplete; if the mutations matter,
+        run in-process (omit ``timeout``).
         """
         self._gmat_accessed = True
         return self._gmat

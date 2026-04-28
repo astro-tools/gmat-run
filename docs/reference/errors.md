@@ -14,6 +14,8 @@ relevant to their failure mode as attributes (`attempts`, `log`, `path`,
 
 ::: gmat_run.GmatRunError
 
+::: gmat_run.GmatTimeoutError
+
 ::: gmat_run.GmatOutputParseError
 
 ::: gmat_run.GmatFieldError

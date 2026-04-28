@@ -19,7 +19,7 @@ the top-level usage; `run --help` prints the subcommand's flags.
 ## `gmat-run run`
 
 ```text
-gmat-run run SCRIPT [--out DIR] [--gmat-root PATH]
+gmat-run run SCRIPT [--out DIR] [--gmat-root PATH] [--timeout SECONDS]
 ```
 
 Loads `SCRIPT`, runs its mission sequence headlessly, and prints a one-line
@@ -30,6 +30,7 @@ summary plus a per-output-type breakdown to stdout.
 | `SCRIPT` | Path to a GMAT `.script` file. |
 | `--out DIR` | Persist the run's outputs into `DIR`. The directory is created if missing. Without this flag, GMAT writes into a temporary workspace that is cleaned up when the process exits. |
 | `--gmat-root PATH` | Path to the GMAT install. Overrides discovery and `$GMAT_ROOT`. |
+| `--timeout SECONDS` | Cap the run at `SECONDS` wall-clock. The mission runs in a child process and is killed on timeout (exit code `6`). Without this flag the run is in-process with no cap. See [Timeouts](timeouts.md) for the full semantics. |
 
 ### Sample output
 
@@ -59,6 +60,7 @@ Stable, so shell scripts can branch on failure mode without parsing stderr:
 | `3` | [`GmatLoadError`][gmat_run.GmatLoadError] — `gmatpy` could not be loaded. |
 | `4` | [`GmatRunError`][gmat_run.GmatRunError] — the mission sequence itself failed. |
 | `5` | [`GmatOutputParseError`][gmat_run.GmatOutputParseError] — an output file could not be parsed. |
+| `6` | [`GmatTimeoutError`][gmat_run.GmatTimeoutError] — `--timeout` was set and the child exceeded the wall-clock cap. |
 
 Argparse uses code `2` for argument errors (missing `SCRIPT`, unknown flag).
 That overlaps with `GmatNotFoundError`; the script can disambiguate from
