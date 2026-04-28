@@ -227,7 +227,7 @@ def child_main(
 
     try:
         status = _run_child(payload)
-    except Exception as exc:  # noqa: BLE001 — top-level handler, surface anything
+    except Exception as exc:
         log = ""
         # GmatRunError carries a log; surface it so the parent can show it.
         if hasattr(exc, "log"):

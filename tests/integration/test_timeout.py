@@ -71,7 +71,7 @@ def test_timeout_raises_gmat_timeout_error_within_wall_clock_window(
     """A 2 s timeout on a 1e9 s propagation raises within ~5 s wall-clock.
 
     Generous upper bound because Windows / macOS CI runners cold-start the
-    gmatpy bootstrap inside the child and that adds ~1–2 s on top of the
+    gmatpy bootstrap inside the child and that adds ~1-2 s on top of the
     timeout itself. The 5 s ceiling still catches a runaway parent that
     failed to kill the child.
     """

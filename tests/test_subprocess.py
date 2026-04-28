@@ -12,9 +12,11 @@ from __future__ import annotations
 import io
 import json
 import math
+import os
+import signal
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -58,7 +60,7 @@ class _FakePopen:
     def communicate(
         self,
         *,
-        input: bytes | None = None,  # noqa: A002 — match Popen signature
+        input: bytes | None = None,
         timeout: float | None = None,
     ) -> tuple[bytes, bytes]:
         self.received_stdin = input
@@ -120,9 +122,11 @@ def test_run_in_subprocess_decodes_status_dict(tmp_path: Path) -> None:
 def test_run_in_subprocess_serialises_overrides_with_allow_nan_false(
     tmp_path: Path,
 ) -> None:
-    proc = _FakePopen(stdout=b'{"ok": true, "log": "", "report_paths": {}, '
-                             b'"ephemeris_paths": {}, "contact_paths": {}, '
-                             b'"output_dir": ""}')
+    proc = _FakePopen(
+        stdout=b'{"ok": true, "log": "", "report_paths": {}, '
+        b'"ephemeris_paths": {}, "contact_paths": {}, '
+        b'"output_dir": ""}'
+    )
     run_in_subprocess(
         script_path=tmp_path / "x.script",
         overrides={"Sat.SMA": 7000.0, "Sat.ECC": 0.0},
@@ -155,9 +159,11 @@ def test_run_in_subprocess_rejects_nan_override(tmp_path: Path) -> None:
 
 
 def test_run_in_subprocess_passes_gmat_root(tmp_path: Path) -> None:
-    proc = _FakePopen(stdout=b'{"ok": true, "log": "", "report_paths": {}, '
-                             b'"ephemeris_paths": {}, "contact_paths": {}, '
-                             b'"output_dir": ""}')
+    proc = _FakePopen(
+        stdout=b'{"ok": true, "log": "", "report_paths": {}, '
+        b'"ephemeris_paths": {}, "contact_paths": {}, '
+        b'"output_dir": ""}'
+    )
     root = tmp_path / "gmat-install"
     run_in_subprocess(
         script_path=tmp_path / "x.script",
@@ -262,6 +268,106 @@ def test_run_in_subprocess_raises_gmat_run_error_on_ok_false(tmp_path: Path) -> 
     assert excinfo.value.log == "engine error\n"
 
 
+# --- _kill_child --------------------------------------------------------------
+
+
+@pytest.mark.skipif(__import__("sys").platform == "win32", reason="POSIX-only ladder")
+def test_kill_child_posix_sigterm_then_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fast path: SIGTERM, child exits within the grace window, no SIGKILL."""
+    from gmat_run import _subprocess as sub
+
+    proc = _FakePopen()
+    proc.returncode = -15  # already exited from the SIGTERM caller's perspective
+
+    sent: list[tuple[int, int]] = []
+    monkeypatch.setattr(sub, "_try_get_pgid", lambda _pid: 99)
+    monkeypatch.setattr(os, "killpg", lambda pgid, sig: sent.append((pgid, sig)))
+
+    sub._kill_child(proc)  # type: ignore[arg-type]
+
+    # SIGTERM was sent; SIGKILL was not (child exited inside the grace window).
+    assert (99, signal.SIGTERM) in sent
+    assert (99, signal.SIGKILL) not in sent
+
+
+@pytest.mark.skipif(__import__("sys").platform == "win32", reason="POSIX-only ladder")
+def test_kill_child_posix_escalates_to_sigkill(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When SIGTERM is ignored past the grace window, the ladder escalates."""
+    from gmat_run import _subprocess as sub
+
+    proc = _FakePopen()  # returncode stays None — proc.wait raises TimeoutExpired
+
+    sent: list[tuple[int, int]] = []
+    monkeypatch.setattr(sub, "_try_get_pgid", lambda _pid: 99)
+    monkeypatch.setattr(os, "killpg", lambda pgid, sig: sent.append((pgid, sig)))
+
+    sub._kill_child(proc)  # type: ignore[arg-type]
+
+    assert (99, signal.SIGTERM) in sent
+    assert (99, signal.SIGKILL) in sent
+
+
+# --- _run_child ---------------------------------------------------------------
+
+
+def test_run_child_loads_applies_overrides_and_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The child handler walks load → __setitem__ → run with the parent's payload."""
+    from gmat_run import _subprocess as sub
+
+    set_calls: list[tuple[str, Any]] = []
+
+    class _FakeReports:
+        _paths: ClassVar[dict[str, Path]] = {"RF": Path("/tmp/work/rf.txt")}
+
+    class _FakeResult:
+        log = "child ran fine\n"
+        reports = _FakeReports()
+        ephemeris_paths: ClassVar[dict[str, Path]] = {"E1": Path("/tmp/work/e1.eph")}
+        contact_paths: ClassVar[dict[str, Path]] = {}
+        output_dir = Path("/tmp/work")
+
+    class _FakeMission:
+        @classmethod
+        def load(cls, path: str, *, gmat_root: str | None = None) -> _FakeMission:
+            cls.last_load = (path, gmat_root)  # type: ignore[attr-defined]
+            return cls()
+
+        def __setitem__(self, key: str, value: Any) -> None:
+            set_calls.append((key, value))
+
+        def run(self, *, working_dir: Any = None, overwrite: bool = False) -> _FakeResult:
+            type(self).last_run = (working_dir, overwrite)  # type: ignore[attr-defined]
+            return _FakeResult()
+
+    # Patch the late-imported Mission inside _run_child by stubbing the
+    # module attribute on `gmat_run.mission` before the function imports it.
+    import gmat_run.mission as mission_module
+
+    monkeypatch.setattr(mission_module, "Mission", _FakeMission)
+
+    payload = {
+        "script": "/path/to/x.script",
+        "overrides": {"Sat.SMA": 7100.0, "Sat.ECC": 0.01},
+        "working_dir": "/tmp/work",
+        "overwrite": True,
+        "gmat_root": "/opt/gmat",
+    }
+    status = sub._run_child(payload)
+
+    assert _FakeMission.last_load == ("/path/to/x.script", "/opt/gmat")  # type: ignore[attr-defined]
+    assert ("Sat.SMA", 7100.0) in set_calls
+    assert ("Sat.ECC", 0.01) in set_calls
+    assert _FakeMission.last_run == ("/tmp/work", True)  # type: ignore[attr-defined]
+    assert status == {
+        "ok": True,
+        "log": "child ran fine\n",
+        "report_paths": {"RF": "/tmp/work/rf.txt"},
+        "ephemeris_paths": {"E1": "/tmp/work/e1.eph"},
+        "contact_paths": {},
+        "output_dir": "/tmp/work",
+    }
+
+
 # --- child_main ---------------------------------------------------------------
 
 
@@ -293,6 +399,27 @@ def test_child_main_surfaces_handler_exception_on_stdout(monkeypatch: pytest.Mon
     assert parsed["ok"] is False
     assert "RuntimeError" in parsed["error"]
     assert "kaboom" in parsed["error"]
+
+
+def test_child_main_propagates_gmat_run_error_log(monkeypatch: pytest.MonkeyPatch) -> None:
+    # When _run_child raises a GmatRunError-shaped exception, its `log`
+    # attribute must surface on the wire so the parent can propagate it
+    # through to the caller's GmatRunError.log.
+    from gmat_run import _subprocess as sub
+
+    def _raise_with_log(_payload: dict[str, Any]) -> dict[str, Any]:
+        raise GmatRunError("engine failed", log="GMAT: integrator diverged\n")
+
+    monkeypatch.setattr(sub, "_run_child", _raise_with_log)
+
+    stdin = io.BytesIO(json.dumps({"script": "/x.script"}).encode("utf-8"))
+    stdout = io.BytesIO()
+    rc = child_main(stdin=stdin, stdout=stdout)
+    assert rc == 1
+    parsed = json.loads(stdout.getvalue().decode("utf-8"))
+    assert parsed["ok"] is False
+    assert "GmatRunError" in parsed["error"]
+    assert parsed["log"] == "GMAT: integrator diverged\n"
 
 
 def test_child_main_passes_through_run_child_status(monkeypatch: pytest.MonkeyPatch) -> None:

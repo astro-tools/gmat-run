@@ -115,7 +115,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # subcommand name still appears in the usage line's choice set; argparse
     # has no clean way to hide that and it's acceptable for an internal name.
     subparsers.add_parser("_internal-run", help=argparse.SUPPRESS)
-    subparsers._choices_actions.pop()  # type: ignore[attr-defined]
+    subparsers._choices_actions.pop()
     return parser
 
 
