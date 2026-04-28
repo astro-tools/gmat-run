@@ -47,6 +47,12 @@ def main(argv: list[str] | None = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.command == "_internal-run":
+        # Late import — keeps `gmat-run --help` from pulling subprocess
+        # plumbing it does not need.
+        from gmat_run._subprocess import child_main
+
+        return child_main()
     return _run(script=args.script, out=args.out, gmat_root=args.gmat_root)
 
 
@@ -83,6 +89,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to the GMAT install. Overrides discovery and $GMAT_ROOT.",
     )
+    # Hidden child-process entry point used by Mission.run(timeout=...). Not
+    # part of the public CLI surface — it reads a JSON payload on stdin and
+    # writes a status JSON on stdout. ``help=SUPPRESS`` alone leaks
+    # ``==SUPPRESS==`` into ``--help`` output (argparse quirk); popping the
+    # last pseudo-action removes the description row entirely. The
+    # subcommand name still appears in the usage line's choice set; argparse
+    # has no clean way to hide that and it's acceptable for an internal name.
+    subparsers.add_parser("_internal-run", help=argparse.SUPPRESS)
+    subparsers._choices_actions.pop()  # type: ignore[attr-defined]
     return parser
 
 
@@ -139,3 +154,9 @@ def _print_section(label: str, frames: Mapping[str, pd.DataFrame]) -> None:
         # is the place to actually count rows. Callers that want the path
         # without parsing can still reach result.report_paths from Python.
         print(f"  {name}: {len(frames[name])} rows")
+
+
+# Allows `python -m gmat_run.cli ...`, which is how the subprocess driver
+# in `gmat_run._subprocess` invokes the hidden `_internal-run` subcommand.
+if __name__ == "__main__":
+    sys.exit(main())

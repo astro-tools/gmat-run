@@ -279,6 +279,7 @@ class Mission:
         *,
         working_dir: str | os.PathLike[str] | None = None,
         overwrite: bool = False,
+        timeout: float | None = None,
     ) -> Results:
         """Execute the loaded mission sequence and return a :class:`Results`.
 
@@ -287,6 +288,17 @@ class Mission:
         isolated temp directory when ``None``), runs ``gmat.RunScript()``, and
         builds a :class:`Results` populated with the resolved output paths and
         the captured log.
+
+        **Wall-clock timeout.** Pass ``timeout=`` to cap the run at a fixed
+        number of seconds. The mission is executed in a child Python process
+        and killed if it exceeds the cap; on timeout
+        :class:`~gmat_run.errors.GmatTimeoutError` is raised. Mutations made
+        through :attr:`gmat` (the escape hatch) are *not* replayed in the
+        child — only writes that went through ``__setitem__`` are recorded
+        and shipped. A :class:`UserWarning` fires when ``timeout=`` is set
+        on a :class:`Mission` whose :attr:`gmat` property has been touched,
+        since the override set is then incomplete from the child's point of
+        view.
 
         **Filename rewrite.** A relative ``Filename`` on an output subscriber
         is rewritten to an absolute path inside ``working_dir`` before the
@@ -337,6 +349,13 @@ class Mission:
                 :class:`~gmat_run.errors.GmatRunError`. Ignored when
                 ``working_dir`` is ``None`` (a fresh temp directory cannot
                 contain colliding artefacts).
+            timeout: When set, run the mission in a child process and kill
+                it after this many wall-clock seconds. ``None`` (the default)
+                runs in-process with no cap. A child re-runs ``Mission.load``
+                from ``script_path`` and replays every recorded
+                ``__setitem__`` against it before invoking ``RunScript``;
+                expect a one- to two-second bootstrap overhead vs. the
+                in-process path.
 
         Raises:
             GmatRunError: ``RunScript`` returned a non-success status, raised
@@ -346,11 +365,31 @@ class Mission:
                 captured log is attached via ``GmatRunError.log`` (empty for
                 pre-run gate failures); the offending directory or file is
                 attached via ``GmatRunError.path``.
+            GmatTimeoutError: ``timeout`` was set and the child exceeded the
+                wall-clock cap. The partial GMAT log is attached via
+                ``GmatTimeoutError.log`` (empty if the kill raced the log
+                handle).
         """
         workspace_path, tempdir = _prepare_workspace(working_dir)
         if working_dir is not None:
             self._warn_if_workspace_is_script_dir(workspace_path)
+        if timeout is not None:
+            return self._run_in_subprocess(
+                workspace_path,
+                tempdir,
+                overwrite=overwrite,
+                timeout=timeout,
+            )
+        return self._run_in_process(workspace_path, tempdir, overwrite=overwrite)
 
+    def _run_in_process(
+        self,
+        workspace_path: Path,
+        tempdir: tempfile.TemporaryDirectory[str] | None,
+        *,
+        overwrite: bool,
+    ) -> Results:
+        """Run the mission against the in-process gmatpy module."""
         # Walk every output subscriber once: bucket the paths and rewrite each
         # relative Filename to an absolute path inside the workspace so GMAT
         # writes where we expect. This sidesteps FileManager.OUTPUT_PATH /
@@ -417,6 +456,72 @@ class Mission:
         # See project memory `gmat-run Mission.run temp-dir lifetime ties to
         # Results`: the temp dir must outlive Mission.run so lazy report
         # parsing on `result.reports[name]` still finds the file on disk.
+        results._workspace = tempdir
+        return results
+
+    def _run_in_subprocess(
+        self,
+        workspace_path: Path,
+        tempdir: tempfile.TemporaryDirectory[str] | None,
+        *,
+        overwrite: bool,
+        timeout: float,
+    ) -> Results:
+        """Run the mission in a child process under a wall-clock cap.
+
+        Re-loads the script in the child, replays the recorded ``_overrides``
+        via ``__setitem__``, and invokes ``Mission.run`` (without timeout)
+        there. The child writes its outputs into ``workspace_path`` so the
+        parent can build a :class:`Results` against the same paths. On
+        timeout the parent kills the child's process group / process and
+        raises :class:`GmatTimeoutError`; the workspace tempdir is cleaned
+        up here so a hung run does not leak a directory.
+        """
+        # Late import — avoids a top-of-module dependency on subprocess
+        # plumbing for the in-process path that the vast majority of
+        # callers will use.
+        from gmat_run import _subprocess
+
+        if self._gmat_accessed:
+            warnings.warn(
+                "Mission.gmat was accessed before run(timeout=...). Mutations "
+                "made through that escape hatch are not replayed in the child "
+                "process; only writes that went through __setitem__ are "
+                "shipped. The child run may diverge from what the in-process "
+                "path would produce.",
+                UserWarning,
+                stacklevel=4,
+            )
+
+        try:
+            status = _subprocess.run_in_subprocess(
+                script_path=self.script_path,
+                overrides=self._overrides,
+                workspace_path=workspace_path,
+                overwrite=overwrite,
+                gmat_root=self.install.root,
+                timeout=timeout,
+            )
+        except BaseException:
+            # On any failure (timeout, engine error, malformed payload),
+            # release a tempdir we own — the child is gone and nothing else
+            # will clean up on our behalf. A user-supplied working_dir is
+            # left intact (their directory, their choice).
+            if tempdir is not None:
+                with suppress(OSError):
+                    tempdir.cleanup()
+            raise
+
+        report_paths = {k: Path(v) for k, v in status.get("report_paths", {}).items()}
+        ephemeris_paths = {k: Path(v) for k, v in status.get("ephemeris_paths", {}).items()}
+        contact_paths = {k: Path(v) for k, v in status.get("contact_paths", {}).items()}
+        results = Results(
+            output_dir=workspace_path,
+            log=status.get("log", ""),
+            report_paths=report_paths,
+            ephemeris_paths=ephemeris_paths,
+            contact_paths=contact_paths,
+        )
         results._workspace = tempdir
         return results
 

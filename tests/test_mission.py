@@ -1392,6 +1392,177 @@ def _make_mission_with_attitude(
     return Mission(gmat=gmat, install=install, script_path=script_dir / "mission.script")
 
 
+class TestMissionRunTimeout:
+    """``Mission.run(timeout=...)`` dispatches to the subprocess driver.
+
+    The driver itself is unit-tested in ``test_subprocess.py``; here we
+    exercise the dispatch logic — that the right arguments flow through,
+    the recorded ``_overrides`` are passed, the `_gmat_accessed` warning
+    fires when appropriate, and the resulting :class:`Results` is built
+    from the status dict the driver returns.
+    """
+
+    def test_run_with_timeout_calls_subprocess_driver(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from gmat_run import _subprocess as sub
+
+        captured: dict[str, Any] = {}
+
+        def _fake_run(**kwargs: Any) -> dict[str, Any]:
+            captured.update(kwargs)
+            return {
+                "ok": True,
+                "log": "ran in child\n",
+                "report_paths": {},
+                "ephemeris_paths": {},
+                "contact_paths": {},
+                "output_dir": str(kwargs["workspace_path"]),
+            }
+
+        monkeypatch.setattr(sub, "run_in_subprocess", _fake_run)
+
+        mission, _ = _run_mission(tmp_path, objects={"Sat": _spacecraft()})
+        mission["Sat.SMA"] = 7100.0  # populates _overrides
+        result = mission.run(timeout=5.0)
+
+        assert isinstance(result, Results)
+        assert result.log == "ran in child\n"
+        assert captured["script_path"] == mission.script_path
+        assert captured["overrides"] == {"Sat.SMA": 7100.0}
+        assert captured["timeout"] == 5.0
+        assert captured["overwrite"] is False
+
+    def test_run_with_timeout_warns_when_gmat_accessed(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from gmat_run import _subprocess as sub
+
+        monkeypatch.setattr(
+            sub,
+            "run_in_subprocess",
+            lambda **_kwargs: {
+                "ok": True,
+                "log": "",
+                "report_paths": {},
+                "ephemeris_paths": {},
+                "contact_paths": {},
+                "output_dir": "",
+            },
+        )
+
+        mission, _ = _run_mission(tmp_path)
+        _ = mission.gmat  # flips _gmat_accessed
+
+        with pytest.warns(UserWarning, match="Mission.gmat was accessed"):
+            mission.run(timeout=2.0)
+
+    def test_run_with_timeout_does_not_warn_when_gmat_not_accessed(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from gmat_run import _subprocess as sub
+
+        monkeypatch.setattr(
+            sub,
+            "run_in_subprocess",
+            lambda **_kwargs: {
+                "ok": True,
+                "log": "",
+                "report_paths": {},
+                "ephemeris_paths": {},
+                "contact_paths": {},
+                "output_dir": "",
+            },
+        )
+
+        mission, _ = _run_mission(tmp_path)
+        # No `mission.gmat` access — _gmat_accessed stays False.
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            mission.run(timeout=2.0)
+
+    def test_run_without_timeout_skips_subprocess_path(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from gmat_run import _subprocess as sub
+
+        called = False
+
+        def _trap(**_kwargs: Any) -> dict[str, Any]:
+            nonlocal called
+            called = True
+            return {}
+
+        monkeypatch.setattr(sub, "run_in_subprocess", _trap)
+
+        mission, _ = _run_mission(tmp_path)
+        mission.run()  # no timeout
+        assert called is False
+
+    def test_run_with_timeout_propagates_gmat_timeout_error(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from gmat_run import _subprocess as sub
+        from gmat_run.errors import GmatTimeoutError
+
+        def _raise(**_kwargs: Any) -> dict[str, Any]:
+            raise GmatTimeoutError(
+                "exceeded 2.0 s",
+                log="partial\n",
+                requested_timeout=2.0,
+                elapsed=2.5,
+            )
+
+        monkeypatch.setattr(sub, "run_in_subprocess", _raise)
+
+        mission, _ = _run_mission(tmp_path)
+        with pytest.raises(GmatTimeoutError) as excinfo:
+            mission.run(timeout=2.0)
+        assert excinfo.value.requested_timeout == 2.0
+        assert excinfo.value.log == "partial\n"
+
+    def test_run_with_timeout_cleans_default_tempdir_on_failure(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # When run_in_subprocess raises and we own a tempdir, it must be
+        # cleaned up — otherwise a hung run leaks a directory per call.
+        from gmat_run import _subprocess as sub
+        from gmat_run.errors import GmatTimeoutError
+
+        captured_workspace: dict[str, Path] = {}
+
+        def _raise(**kwargs: Any) -> dict[str, Any]:
+            captured_workspace["path"] = kwargs["workspace_path"]
+            raise GmatTimeoutError(
+                "timed out",
+                log="",
+                requested_timeout=1.0,
+                elapsed=2.0,
+            )
+
+        monkeypatch.setattr(sub, "run_in_subprocess", _raise)
+
+        mission, _ = _run_mission(tmp_path)
+        with pytest.raises(GmatTimeoutError):
+            mission.run(timeout=1.0)
+        # The default-workspace tempdir was wiped.
+        assert "path" in captured_workspace
+        assert not captured_workspace["path"].exists()
+
+
 class TestAttitudeInputs:
     """``Mission.attitude_inputs`` discovers Spacecraft.AttitudeFileName entries."""
 

@@ -109,7 +109,14 @@ def test_top_level_help_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as info:
         cli.main(["--help"])
     assert info.value.code == 0
-    assert "run" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "run" in out
+    # The _internal-run description row must be suppressed: argparse leaks
+    # the literal "==SUPPRESS==" placeholder unless we pop the pseudo-action,
+    # and a stray placeholder advertises the wire format the subcommand
+    # exists to hide. (The name still appears in the usage choice set —
+    # argparse has no clean way to hide that, and it's acceptable.)
+    assert "==SUPPRESS==" not in out
 
 
 def test_run_help_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
@@ -315,3 +322,23 @@ def test_entrypoint_module_target() -> None:
     import gmat_run.cli
 
     assert callable(gmat_run.cli.main)
+
+
+def test_internal_run_subcommand_dispatches_to_child_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The hidden subcommand must route to the subprocess child handler so
+    # `Mission.run(timeout=...)` can spawn `python -m gmat_run.cli
+    # _internal-run` and have it work. The handler reads stdin / writes
+    # stdout in production; we just confirm the dispatch by stubbing it.
+    called = False
+
+    def _stub() -> int:
+        nonlocal called
+        called = True
+        return 0
+
+    monkeypatch.setattr("gmat_run._subprocess.child_main", _stub)
+    code = cli.main(["_internal-run"])
+    assert code == 0
+    assert called is True
