@@ -7,11 +7,10 @@ paper over them.
 
 ## No built-in wall-clock timeout
 
-[`Mission.run`][gmat_run.Mission.run] does not take a `timeout=` keyword. A
-divergent solver or hung subscriber blocks the calling Python process until
-the kernel is restarted. The library deliberately stops at that line — see
-[Wall-clock timeouts](timeouts.md) for a 25-line subprocess recipe that gives
-you the cap on the caller's side.
+[`Mission.run`][gmat_run.Mission.run] does not take a `timeout=` keyword. If
+you need a wall-clock cap on a mission run — for example to bound a divergent
+solver or a hung subscriber — see [Wall-clock timeouts](timeouts.md) for a
+subprocess recipe.
 
 ## gmatpy single-init constraint
 
