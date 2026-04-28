@@ -13,3 +13,7 @@ locally after `pip install gmat-run[examples]` and the matplotlib dependency.
 - [Ground track](03_ground_track.ipynb) — read an `EphemerisFile` from
   [`Results.ephemerides`][gmat_run.Results] and plot the spacecraft's ground
   track on a Cartopy world map.
+- [Export to CCSDS-OEM](04_export_oem.ipynb) — run a stock GMAT sample that emits
+  an STK ephemeris, convert it to a CCSDS-OEM file with
+  [`Results.write_oem`][gmat_run.Results], re-parse the result, and visualise the
+  trajectory in 3D.
