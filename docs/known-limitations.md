@@ -1,9 +1,8 @@
 # Known limitations
 
 The list below captures behaviour that surprises users often enough to warrant
-a heads-up. Most items are intentional — they fall out of the underlying
-`gmatpy` runtime or the GMAT script semantics — and gmat-run does not try to
-paper over them.
+a heads-up. Most items fall out of the underlying `gmatpy` runtime or the GMAT
+script semantics.
 
 ## No built-in wall-clock timeout
 
@@ -21,13 +20,9 @@ interpreter. [`gmat_run.bootstrap`][gmat_run.bootstrap] (and therefore
 a *different* install raises [`GmatLoadError`][gmat_run.GmatLoadError]. Calling
 again with the *same* install is a no-op and returns the cached module.
 
-Practical implications:
-
-- A single Python process is bound to one GMAT install for its lifetime. If
-  you need to compare missions across GMAT releases, run them in separate
-  processes (subprocess, pytest workers, multiprocessing).
-- `gmat-run` integration tests that touch the runtime cannot fork
-  `xdist` workers within the same process; spawn them.
+Practical implication: a single Python process is bound to one GMAT install
+for its lifetime. If you need to compare missions across GMAT releases, run
+them in separate processes (subprocess, pytest workers, multiprocessing).
 
 ## Supported Python versions
 
@@ -68,9 +63,8 @@ but you cannot ask GMAT to *emit* an AEM trace of a propagated spacecraft.
 ## Parser format restrictions
 
 The parsers in [`gmat_run.parsers`](reference/parsers.md) cover the formats
-GMAT actually emits in v0.3; uncommon variants are rejected with
-[`GmatOutputParseError`][gmat_run.GmatOutputParseError] rather than silently
-guessed at.
+GMAT actually emits in v0.3; uncommon variants raise
+[`GmatOutputParseError`][gmat_run.GmatOutputParseError].
 
 - **CCSDS-OEM ephemeris**: covariance blocks (`COVARIANCE_START` …
   `COVARIANCE_STOP`) are skipped; acceleration columns past the mandatory six
@@ -86,9 +80,8 @@ guessed at.
   concatenable).
 - **SPK ephemeris**: the parser assumes one spacecraft per file (which
   matches GMAT's writer behaviour). Multi-target SPKs are rejected.
-- **Code-500 binary ephemeris**: not implemented. GMAT does not run any of its
-  stock R2026a sample missions through this format, and no public tooling
-  decodes it; out of scope unless a user need surfaces.
+- **Code-500 binary ephemeris**: not implemented. No public tooling decodes
+  the format, and GMAT does not exercise it in its stock R2026a samples.
 
 ## Epoch promotion is not a time-scale conversion
 
