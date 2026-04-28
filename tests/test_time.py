@@ -106,6 +106,85 @@ def test_utc_to_tai_jumps_one_second_across_2017_leap() -> None:
     assert offset_after - offset_before == pytest.approx(1.0, abs=1e-9)
 
 
+# --- target=UTC at a leap-second instant ------------------------------------
+
+# An input epoch whose physical instant astropy renders as ``23:59:60.x`` in
+# UTC cannot be expressed as ``numpy.datetime64`` — it raises rather than
+# silently truncating. The fix funnels these rows through
+# ``Time.to_datetime(leap_second_strict='silent')`` and pins each one to the
+# post-jump second; non-leap rows in the same series keep full ns precision.
+
+# TAI for the 2017-01-01 leap-second instant (offset went 36 s -> 37 s).
+_LEAP_2017_TAI = pd.Timestamp("2017-01-01 00:00:36")
+_LEAP_2017_UTC_POST_JUMP = pd.Timestamp("2017-01-01 00:00:00")
+
+
+def test_tai_to_utc_at_leap_second_instant_pins_to_post_jump_second() -> None:
+    s = pd.Series([_LEAP_2017_TAI], name="t")
+    out = convert(s, "TAI", "UTC")
+    assert out.iloc[0] == _LEAP_2017_UTC_POST_JUMP
+    assert out.dtype == np.dtype("datetime64[ns]")
+
+
+def test_tt_to_utc_at_leap_second_instant_pins_to_post_jump_second() -> None:
+    # TT - TAI = 32.184 s exactly (constant offset).
+    tt_value = _LEAP_2017_TAI + pd.Timedelta(seconds=32, microseconds=184_000)
+    s = pd.Series([tt_value], name="t")
+    out = convert(s, "TT", "UTC")
+    assert out.iloc[0] == _LEAP_2017_UTC_POST_JUMP
+
+
+def test_a1_to_utc_at_leap_second_instant_pins_to_post_jump_second() -> None:
+    # A1 leads TAI by 0.0343817 s; A1 -> UTC routes through TAI.
+    a1_value = _LEAP_2017_TAI + pd.Timedelta("0.0343817s")
+    s = pd.Series([a1_value], name="t")
+    out = convert(s, "A1", "UTC")
+    assert out.iloc[0] == _LEAP_2017_UTC_POST_JUMP
+
+
+def test_convert_column_through_leap_second_instant() -> None:
+    """``convert_column`` (and therefore ``promote_epochs(..., convert_to=)`` and
+    every parser-level ``convert_to=``) inherits the fix transitively."""
+    df = pd.DataFrame({"Sat.TAIGregorian": [_LEAP_2017_TAI]})
+    df.attrs["epoch_scales"] = {"Sat.TAIGregorian": "TAI"}
+    convert_column(df, "Sat.TAIGregorian", "UTC")
+    assert df.attrs["epoch_scales"]["Sat.TAIGregorian"] == "UTC"
+    assert df["Sat.TAIGregorian"].iloc[0] == _LEAP_2017_UTC_POST_JUMP
+
+
+def test_to_utc_mixed_series_preserves_ns_on_non_leap_rows() -> None:
+    """One leap row in a series must not drag every other row down to µs."""
+    # 2026 is past the last leap second, so TAI - UTC = 37 s here; the
+    # nanosecond digit (789) survives the round-trip.
+    ns_precise_tai = pd.Timestamp("2026-01-15 12:00:00.123456789")
+    s = pd.Series([_LEAP_2017_TAI, ns_precise_tai], name="t")
+
+    out = convert(s, "TAI", "UTC")
+
+    assert out.iloc[0] == _LEAP_2017_UTC_POST_JUMP
+    assert out.iloc[1] == ns_precise_tai - pd.Timedelta(seconds=37)
+    assert pd.Timestamp(out.iloc[1]).nanosecond == 789
+
+
+@pytest.mark.parametrize(
+    "tai_str, expected_utc_str",
+    [
+        ("2012-07-01 00:00:34", "2012-07-01 00:00:00"),  # offset 34 -> 35
+        ("2017-01-01 00:00:36", "2017-01-01 00:00:00"),  # offset 36 -> 37
+    ],
+    ids=["2012-07-01", "2017-01-01"],
+)
+def test_historical_leap_second_instants_convert_cleanly(
+    tai_str: str, expected_utc_str: str
+) -> None:
+    """Each TAI instant astropy renders as UTC ``23:59:60`` is pinned to the
+    post-jump second. Two distinct boundaries cover the helper's split path
+    on both sides of the ns-vs-µs precision threshold."""
+    s = pd.Series([pd.Timestamp(tai_str)], name="t")
+    out = convert(s, "TAI", "UTC")
+    assert out.iloc[0] == pd.Timestamp(expected_utc_str)
+
+
 # --- ImportError plumbing ----------------------------------------------------
 
 

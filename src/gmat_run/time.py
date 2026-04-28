@@ -21,6 +21,7 @@ without astropy installed is fine; calling :func:`convert` or
 
 from typing import Any, Final
 
+import numpy as np
 import pandas as pd
 
 __all__ = ["convert", "convert_column"]
@@ -53,6 +54,13 @@ def convert(
     Both scales must be one of ``"A1"``, ``"TAI"``, ``"UTC"``, ``"TT"``,
     ``"TDB"``. Same-scale conversion returns a copy of ``series`` without
     importing astropy.
+
+    Leap-second instants on the ``to_scale="UTC"`` path collapse to the
+    post-jump second — matching what GMAT does internally — at microsecond
+    precision. ``numpy.datetime64`` cannot represent ``23:59:60`` so this
+    is the only sensible representation; non-leap-second rows keep full
+    ``datetime64[ns]`` precision even when a sibling row in the same
+    series lands on a leap second.
 
     Args:
         series: ``datetime64[ns]`` ``Series`` representing the labelled
@@ -105,7 +113,10 @@ def convert(
     astropy_to = "tai" if to_scale == "A1" else _ASTROPY_SCALE[to_scale]
 
     t = Time(values, format="datetime64", scale=astropy_from)
-    converted_values = getattr(t, astropy_to).datetime64
+    if astropy_to == "utc":
+        converted_values = _utc_to_datetime64(t.utc)
+    else:
+        converted_values = getattr(t, astropy_to).datetime64
 
     if to_scale == "A1":
         converted_values = converted_values + _A1_TAI_OFFSET.to_numpy()
@@ -170,6 +181,32 @@ def _require_datetime_dtype(series: pd.Series) -> None:
             f"expected a datetime64 Series (the dtype produced by "
             f"promote_epochs); got dtype={series.dtype}"
         )
+
+
+def _utc_to_datetime64(t_in_utc: Any) -> np.ndarray:
+    """Materialise an astropy UTC ``Time`` as ``datetime64[ns]``.
+
+    Astropy renders the leap-second instant as ``YYYY-MM-DD HH:MM:60.x`` in
+    UTC, which ``numpy.datetime64`` cannot represent. The fast path uses
+    ``Time.datetime64`` (full nanosecond precision); for rows inside a
+    leap-second window we fall back to
+    ``Time.to_datetime(leap_second_strict='silent')``, which collapses the
+    1-second window to the post-jump second at microsecond precision.
+
+    Leap-window detection inspects ``Time.iso``: astropy's default ISO
+    subfmt always renders the seconds field at character offset 17:19, so
+    matching the literal ``"60"`` there is enough.
+    """
+    iso = np.asarray(t_in_utc.iso)
+    in_leap = np.fromiter((s[17:19] == "60" for s in iso), dtype=bool, count=len(iso))
+    if not in_leap.any():
+        return np.asarray(t_in_utc.datetime64)
+    out = np.empty(len(iso), dtype="datetime64[ns]")
+    if (~in_leap).any():
+        out[~in_leap] = t_in_utc[~in_leap].datetime64
+    leap_dt = t_in_utc[in_leap].to_datetime(leap_second_strict="silent")
+    out[in_leap] = np.asarray(leap_dt, dtype="datetime64[ns]")
+    return out
 
 
 def _import_astropy_time() -> Any:
