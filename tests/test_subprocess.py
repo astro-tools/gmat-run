@@ -316,15 +316,22 @@ def test_run_child_loads_applies_overrides_and_runs(monkeypatch: pytest.MonkeyPa
 
     set_calls: list[tuple[str, Any]] = []
 
+    # Use a tmp_path-style location so `str(Path(...))` round-trips
+    # natively on whatever platform the test runs (Windows turns "/tmp/x"
+    # into "\\tmp\\x" and the assertion would diverge).
+    work = Path("work")
+    rf_path = work / "rf.txt"
+    eph_path = work / "e1.eph"
+
     class _FakeReports:
-        _paths: ClassVar[dict[str, Path]] = {"RF": Path("/tmp/work/rf.txt")}
+        _paths: ClassVar[dict[str, Path]] = {"RF": rf_path}
 
     class _FakeResult:
         log = "child ran fine\n"
         reports = _FakeReports()
-        ephemeris_paths: ClassVar[dict[str, Path]] = {"E1": Path("/tmp/work/e1.eph")}
+        ephemeris_paths: ClassVar[dict[str, Path]] = {"E1": eph_path}
         contact_paths: ClassVar[dict[str, Path]] = {}
-        output_dir = Path("/tmp/work")
+        output_dir = work
 
     class _FakeMission:
         @classmethod
@@ -348,7 +355,7 @@ def test_run_child_loads_applies_overrides_and_runs(monkeypatch: pytest.MonkeyPa
     payload = {
         "script": "/path/to/x.script",
         "overrides": {"Sat.SMA": 7100.0, "Sat.ECC": 0.01},
-        "working_dir": "/tmp/work",
+        "working_dir": str(work),
         "overwrite": True,
         "gmat_root": "/opt/gmat",
     }
@@ -357,14 +364,14 @@ def test_run_child_loads_applies_overrides_and_runs(monkeypatch: pytest.MonkeyPa
     assert _FakeMission.last_load == ("/path/to/x.script", "/opt/gmat")  # type: ignore[attr-defined]
     assert ("Sat.SMA", 7100.0) in set_calls
     assert ("Sat.ECC", 0.01) in set_calls
-    assert _FakeMission.last_run == ("/tmp/work", True)  # type: ignore[attr-defined]
+    assert _FakeMission.last_run == (str(work), True)  # type: ignore[attr-defined]
     assert status == {
         "ok": True,
         "log": "child ran fine\n",
-        "report_paths": {"RF": "/tmp/work/rf.txt"},
-        "ephemeris_paths": {"E1": "/tmp/work/e1.eph"},
+        "report_paths": {"RF": str(rf_path)},
+        "ephemeris_paths": {"E1": str(eph_path)},
         "contact_paths": {},
-        "output_dir": "/tmp/work",
+        "output_dir": str(work),
     }
 
 
