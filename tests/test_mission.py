@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import gc
 import os
+import warnings
 from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
@@ -981,6 +982,215 @@ class TestMissionRun:
         # errors propagate.
         with pytest.raises(RuntimeError):
             mission.run()
+
+
+# --- Mission.run working-directory hardening ---------------------------------
+
+
+class TestMissionRunWorkingDir:
+    """Pre-run gates around explicit ``working_dir`` and the post-run notice."""
+
+    def test_collision_default_raises_before_runscript(self, tmp_path: Path) -> None:
+        # A pre-existing file matching a script-declared output's resolved
+        # name is a collision: gmat-run refuses the run rather than silently
+        # mixing old and new artefacts.
+        custom = tmp_path / "out"
+        custom.mkdir()
+        stale = custom / "r1.txt"
+        stale.write_text("stale\n", encoding="utf-8")
+        rf = _report_file("R1", "r1.txt")
+        mission, gmat = _run_mission(tmp_path, objects={"R1": rf})
+
+        with pytest.raises(GmatRunError) as excinfo:
+            mission.run(working_dir=custom)
+
+        assert "already contains output files" in str(excinfo.value)
+        assert str(stale) in str(excinfo.value)
+        assert excinfo.value.path == custom
+        assert excinfo.value.log == ""
+        # The pre-existing file is left intact: gmat-run did not touch it.
+        assert stale.read_text() == "stale\n"
+        # And RunScript / UseLogFile never ran — the gate fired earlier.
+        assert gmat._log_paths == []
+
+    def test_collision_with_overwrite_clears_and_succeeds(self, tmp_path: Path) -> None:
+        custom = tmp_path / "out"
+        custom.mkdir()
+        existing = custom / "r1.txt"
+        existing.write_text("stale\n", encoding="utf-8")
+        rf = _report_file("R1", "r1.txt")
+        mission, _ = _run_mission(tmp_path, objects={"R1": rf})
+
+        result = mission.run(working_dir=custom, overwrite=True)
+
+        # The colliding file was unlinked before RunScript ran. The fake gmat
+        # never re-creates it (only UseLogFile writes) — its absence post-run
+        # is direct evidence that overwrite=True did its job.
+        assert not existing.exists()
+        assert result.reports._paths == {"R1": existing}  # type: ignore[attr-defined]
+
+    def test_collision_lists_each_offender_in_message(self, tmp_path: Path) -> None:
+        custom = tmp_path / "out"
+        custom.mkdir()
+        (custom / "r1.txt").write_text("a\n", encoding="utf-8")
+        (custom / "e1.eph").write_text("b\n", encoding="utf-8")
+        mission, _ = _run_mission(
+            tmp_path,
+            objects={
+                "R1": _report_file("R1", "r1.txt"),
+                "E1": _ephemeris_file("E1", "e1.eph"),
+            },
+        )
+
+        with pytest.raises(GmatRunError) as excinfo:
+            mission.run(working_dir=custom)
+
+        msg = str(excinfo.value)
+        assert "r1.txt" in msg
+        assert "e1.eph" in msg
+        assert "overwrite=True" in msg
+
+    def test_collision_ignores_outputs_pinned_outside_workspace(self, tmp_path: Path) -> None:
+        # A user-pinned absolute Filename outside working_dir is the user's
+        # destination. Even when a file already exists at that absolute
+        # location, the collision gate is scoped to files *inside*
+        # working_dir and the run proceeds without touching the pinned file.
+        custom = tmp_path / "out"
+        custom.mkdir()
+        elsewhere = tmp_path / "elsewhere" / "report.txt"
+        elsewhere.parent.mkdir()
+        elsewhere.write_text("existing\n", encoding="utf-8")
+        rf = _report_file("R1", str(elsewhere))
+        mission, _ = _run_mission(tmp_path, objects={"R1": rf})
+
+        result = mission.run(working_dir=custom)
+
+        assert elsewhere.read_text() == "existing\n"
+        assert result.reports._paths == {"R1": elsewhere}  # type: ignore[attr-defined]
+
+    def test_default_workspace_skips_collision_gate(self, tmp_path: Path) -> None:
+        # working_dir=None mints a fresh tempdir, so the gate has no work to
+        # do — the test just guards against a regression that would refuse
+        # default-workspace runs.
+        rf = _report_file("R1", "r1.txt")
+        mission, _ = _run_mission(tmp_path, objects={"R1": rf})
+
+        result = mission.run()
+
+        assert (result.output_dir / "r1.txt").parent == result.output_dir
+
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="POSIX-only: chmod 0o400 does not enforce write protection on Windows",
+    )
+    @pytest.mark.skipif(
+        hasattr(os, "geteuid") and os.geteuid() == 0,
+        reason="root bypasses POSIX permission bits, so the writability probe still succeeds",
+    )
+    def test_unwritable_working_dir_raises_before_runscript(self, tmp_path: Path) -> None:
+        custom = tmp_path / "locked"
+        custom.mkdir()
+        custom.chmod(0o400)
+        try:
+            mission, gmat = _run_mission(tmp_path)
+
+            with pytest.raises(GmatRunError) as excinfo:
+                mission.run(working_dir=custom)
+
+            assert "not writable" in str(excinfo.value)
+            assert excinfo.value.path == custom
+            assert excinfo.value.log == ""
+            assert isinstance(excinfo.value.__cause__, OSError)
+            # RunScript / UseLogFile must not have run.
+            assert gmat._log_paths == []
+        finally:
+            # Restore write permission so pytest's tmp_path cleanup can
+            # remove the directory on teardown.
+            custom.chmod(0o700)
+
+    def test_warns_when_working_dir_is_script_dir(self, tmp_path: Path) -> None:
+        # The script lives at tmp_path/scripts/mission.script; pointing
+        # working_dir at tmp_path/scripts means GMAT outputs land alongside
+        # the source. The warning is the load-bearing safety rail — don't
+        # quietly let a user clobber their own script.
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        gmat = _make_fake_gmat()
+        install = _make_install(tmp_path / "gmat")
+        mission = Mission(gmat=gmat, install=install, script_path=scripts / "mission.script")
+
+        with pytest.warns(UserWarning, match="script's own directory"):
+            mission.run(working_dir=scripts)
+
+    def test_no_warning_for_unrelated_working_dir(self, tmp_path: Path) -> None:
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        out = tmp_path / "out"
+        out.mkdir()
+        gmat = _make_fake_gmat()
+        install = _make_install(tmp_path / "gmat")
+        mission = Mission(gmat=gmat, install=install, script_path=scripts / "mission.script")
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            mission.run(working_dir=out)
+
+    def test_outside_workspace_notice_prepended_to_log(self, tmp_path: Path) -> None:
+        # An absolute Filename pinned outside working_dir adds a one-line
+        # notice at the top of the captured log so callers see the trail
+        # without having to walk the path mappings themselves.
+        elsewhere = tmp_path / "elsewhere" / "report.txt"
+        elsewhere.parent.mkdir()
+        rf = _report_file("R1", str(elsewhere))
+        mission, _ = _run_mission(
+            tmp_path,
+            objects={"R1": rf},
+            log_text="GMAT execution complete\n",
+        )
+
+        result = mission.run()
+
+        assert result.log.startswith("[gmat-run] note:")
+        assert str(elsewhere) in result.log
+        # The original GMAT log content is preserved after the prefix line.
+        assert "GMAT execution complete" in result.log
+
+    def test_no_notice_when_every_output_is_inside(self, tmp_path: Path) -> None:
+        rf = _report_file("R1", "r1.txt")
+        mission, _ = _run_mission(
+            tmp_path,
+            objects={"R1": rf},
+            log_text="GMAT execution complete\n",
+        )
+
+        result = mission.run()
+
+        assert "[gmat-run] note:" not in result.log
+        assert result.log == "GMAT execution complete\n"
+
+    def test_forward_slash_relative_filename_resolves_under_workspace(self, tmp_path: Path) -> None:
+        # Regression for Windows-authored scripts that use forward slashes in
+        # a relative ``Filename``. ``Path.name`` strips any leading directory
+        # portion regardless of the platform, so the resolved path lives
+        # directly under the workspace on every OS.
+        rf = _report_file("R1", "outputs/r1.txt")
+        mission, _ = _run_mission(tmp_path, objects={"R1": rf})
+
+        result = mission.run()
+
+        assert result.reports._paths == {  # type: ignore[attr-defined]
+            "R1": result.output_dir / "r1.txt"
+        }
+
+    def test_overwrite_is_a_noop_for_default_workspace(self, tmp_path: Path) -> None:
+        # overwrite=True with a fresh tempdir has nothing to clear; the run
+        # completes normally. Guards against a regression that would gate
+        # the default path on the overwrite flag.
+        mission, _ = _run_mission(tmp_path)
+
+        result = mission.run(overwrite=True)
+
+        assert result.output_dir.is_dir()
 
 
 # --- Mission.attitude_inputs --------------------------------------------------

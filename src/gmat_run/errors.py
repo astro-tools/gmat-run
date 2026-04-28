@@ -55,11 +55,15 @@ class GmatRunError(GmatError):
 
     The ``log`` attribute carries GMAT's own stderr / log content captured during
     the run, so callers can surface GMAT's diagnostic verbatim without re-reading
-    the log file.
+    the log file. The optional ``path`` attribute carries the offending directory
+    or file when the failure is wired to a specific filesystem location (e.g. a
+    non-writable ``working_dir`` or a colliding output file); ``None`` for engine
+    failures that are not path-scoped.
     """
 
-    def __init__(self, message: str, log: str) -> None:
+    def __init__(self, message: str, log: str, *, path: Path | None = None) -> None:
         self.log = log
+        self.path = path
         super().__init__(message)
 
 

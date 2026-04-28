@@ -23,7 +23,8 @@ from __future__ import annotations
 import difflib
 import os
 import tempfile
-from collections.abc import Iterator, Mapping
+import warnings
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import suppress
 from pathlib import Path
 from types import MappingProxyType, ModuleType
@@ -261,6 +262,7 @@ class Mission:
         self,
         *,
         working_dir: str | os.PathLike[str] | None = None,
+        overwrite: bool = False,
     ) -> Results:
         """Execute the loaded mission sequence and return a :class:`Results`.
 
@@ -282,6 +284,28 @@ class Mission:
         After :meth:`run` returns, reading ``mission["RF.Filename"]`` yields
         the resolved absolute path, which points at the file on disk.
 
+        **Working directory** (when ``working_dir`` is set explicitly):
+
+        * The directory is created if missing; if creation or any write into
+          it fails, :class:`~gmat_run.errors.GmatRunError` is raised before
+          ``RunScript`` is invoked, with ``GmatRunError.path`` set to the
+          offending directory.
+        * If ``working_dir`` resolves to the same directory as
+          :attr:`script_path`'s parent, a :class:`UserWarning` is emitted —
+          GMAT outputs in that case may overwrite the user's source files.
+        * Pre-existing files inside ``working_dir`` whose names match the
+          run's resolved output paths are detected before ``RunScript``.
+          Default policy: raise :class:`~gmat_run.errors.GmatRunError` and
+          skip the run, so the prior run's artefacts are not silently mixed
+          with the new run's. Pass ``overwrite=True`` to unlink the colliding
+          files and proceed. The gate is scoped to files inside
+          ``working_dir`` only — absolute filenames pinned outside (see
+          below) are the user's destination and are never touched.
+        * After a successful run, any output that landed outside
+          ``working_dir`` (because the script declared an absolute
+          ``Filename``) is summarised as a one-line ``[gmat-run] note: …``
+          notice prepended to :attr:`Results.log`.
+
         Args:
             working_dir: Directory GMAT writes its outputs into. ``None``
                 creates a fresh :class:`tempfile.TemporaryDirectory` whose
@@ -290,14 +314,26 @@ class Mission:
                 report parsing keeps working without a context manager. Call
                 :meth:`Results.persist` before that to copy the artefacts to a
                 permanent location.
+            overwrite: When ``True``, unlink any pre-existing files in
+                ``working_dir`` that collide with the run's resolved output
+                paths before invoking ``RunScript``. When ``False`` (the
+                default), a collision raises
+                :class:`~gmat_run.errors.GmatRunError`. Ignored when
+                ``working_dir`` is ``None`` (a fresh temp directory cannot
+                contain colliding artefacts).
 
         Raises:
-            GmatRunError: ``RunScript`` returned a non-success status or
-                raised a GMAT engine exception. The captured log is attached
-                via ``GmatRunError.log``.
+            GmatRunError: ``RunScript`` returned a non-success status, raised
+                a GMAT engine exception, or a pre-run gate failed
+                (``working_dir`` not creatable, not writable, or contained
+                colliding output files with ``overwrite=False``). The
+                captured log is attached via ``GmatRunError.log`` (empty for
+                pre-run gate failures); the offending directory or file is
+                attached via ``GmatRunError.path``.
         """
         workspace_path, tempdir = _prepare_workspace(working_dir)
-        log_path = workspace_path / "GmatLog.txt"
+        if working_dir is not None:
+            self._warn_if_workspace_is_script_dir(workspace_path)
 
         # Walk every output subscriber once: bucket the paths and rewrite each
         # relative Filename to an absolute path inside the workspace so GMAT
@@ -308,6 +344,15 @@ class Mission:
         # subscriber, and overriding the Filename field is the only setting
         # the engine consults at write time.
         report_paths, ephemeris_paths, contact_paths = self._rewrite_output_paths(workspace_path)
+        all_paths = (*report_paths.values(), *ephemeris_paths.values(), *contact_paths.values())
+        # Pre-run gate: pre-existing artefacts inside working_dir. Bounded to
+        # *resolved* output paths that live under workspace_path — absolute
+        # filenames pinned by the script outside the workspace are the user's
+        # destination and we honour them. Default raises; overwrite=True
+        # unlinks the colliding files first.
+        _check_inside_workspace_collisions(workspace_path, all_paths, overwrite=overwrite)
+        log_path = workspace_path / "GmatLog.txt"
+
         self._gmat.UseLogFile(str(log_path))
 
         api_exception = _get_api_exception(self._gmat)
@@ -338,6 +383,14 @@ class Mission:
                 log=log,
             )
 
+        # Out-of-workspace notice: any output the script pinned at an absolute
+        # path outside workspace_path gets a one-line summary at the top of
+        # the captured log so callers see the trail without having to re-walk
+        # the path mappings themselves.
+        notice = _format_outside_workspace_notice(workspace_path, all_paths)
+        if notice:
+            log = notice + log
+
         results = Results(
             output_dir=workspace_path,
             log=log,
@@ -350,6 +403,31 @@ class Mission:
         # parsing on `result.reports[name]` still finds the file on disk.
         results._workspace = tempdir
         return results
+
+    def _warn_if_workspace_is_script_dir(self, workspace_path: Path) -> None:
+        """Emit a UserWarning if ``workspace_path`` resolves to the script's directory.
+
+        Running into the script's own directory risks GMAT overwriting the
+        ``.script`` itself (or sibling source files) when the script's
+        ``ReportFile.Filename`` happens to collide with a source name.
+        Resolution is required on both sides — relative ``working_dir`` and a
+        symlinked install both want to compare canonical paths. Failure to
+        resolve (e.g. permission denied on a parent symlink) silently skips
+        the warning; the writability gate would have already raised.
+        """
+        try:
+            workspace_resolved = workspace_path.resolve()
+            script_dir_resolved = self.script_path.parent.resolve()
+        except OSError:
+            return
+        if workspace_resolved != script_dir_resolved:
+            return
+        warnings.warn(
+            f"working_dir '{workspace_path}' is the script's own directory; "
+            "outputs may overwrite the script or other source files",
+            UserWarning,
+            stacklevel=3,
+        )
 
     # --- discovery helpers ----------------------------------------------------
 
@@ -672,15 +750,142 @@ def _prepare_workspace(
 
     When ``working_dir`` is None we mint a fresh :class:`TemporaryDirectory`
     and return its handle so the caller can park it on the resulting
-    :class:`Results` to extend its lifetime. A user-supplied path is created
-    on demand; no tempdir is allocated and ``None`` is returned in its slot.
+    :class:`Results` to extend its lifetime — writability is implicit and
+    the directory cannot collide with the script's own location, so neither
+    gate runs.
+
+    A user-supplied path is created on demand and probed for writability with
+    a unique :func:`tempfile.mkstemp` file inside it; either failure raises
+    :class:`~gmat_run.errors.GmatRunError` before ``RunScript`` is invoked,
+    with ``GmatRunError.path`` set to the offending directory.
     """
     if working_dir is None:
         tempdir = tempfile.TemporaryDirectory(prefix="gmat-run-")
         return Path(tempdir.name), tempdir
     path = Path(working_dir).expanduser()
-    path.mkdir(parents=True, exist_ok=True)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise GmatRunError(
+            f"working_dir '{path}' could not be created: {exc}",
+            log="",
+            path=path,
+        ) from exc
+    _probe_writable(path)
     return path, None
+
+
+def _probe_writable(path: Path) -> None:
+    """Confirm ``path`` accepts writes by creating and unlinking a probe file.
+
+    ``os.access`` is unreliable on Windows ACLs and on filesystems where the
+    directory mode-bits don't capture the effective permission, so the only
+    portable answer is to actually try writing. ``tempfile.mkstemp`` is used
+    instead of a fixed probe-file name so the check is collision-free even if
+    the user happens to keep an unrelated dotfile of the same name.
+    """
+    try:
+        fd, probe = tempfile.mkstemp(prefix=".gmat-run-write-probe-", dir=str(path))
+    except OSError as exc:
+        raise GmatRunError(
+            f"working_dir '{path}' is not writable: {exc}",
+            log="",
+            path=path,
+        ) from exc
+    os.close(fd)
+    with suppress(OSError):
+        os.unlink(probe)
+
+
+def _check_inside_workspace_collisions(
+    workspace_path: Path,
+    paths: Iterable[Path],
+    *,
+    overwrite: bool,
+) -> None:
+    """Gate or clear pre-existing output files inside the workspace.
+
+    Walks every resolved output path; only those that live under
+    ``workspace_path`` (i.e. relative ``Filename`` rewrites, not user-pinned
+    absolute paths) participate in the gate. With ``overwrite=False`` (the
+    default), any pre-existing file raises
+    :class:`~gmat_run.errors.GmatRunError` listing the collisions; with
+    ``overwrite=True`` they are unlinked instead.
+
+    The check runs before ``RunScript`` so a refused run leaves the workspace
+    untouched (the error message tells the caller exactly what to clear, or
+    pass ``overwrite=True``). ``GmatLog.txt`` itself is not script-declared
+    and never participates in this gate.
+    """
+    try:
+        workspace_resolved = workspace_path.resolve()
+    except OSError:
+        # An unresolvable workspace means we cannot tell what is inside; skip
+        # the gate rather than raise a confusing collision error. Writability
+        # would have already failed if this path were genuinely broken.
+        return
+    collisions: list[Path] = []
+    for p in paths:
+        if not _is_inside(p, workspace_resolved):
+            continue
+        if p.exists():
+            collisions.append(p)
+    if not collisions:
+        return
+    if overwrite:
+        for p in collisions:
+            with suppress(OSError):
+                p.unlink()
+        return
+    listing = ", ".join(str(p) for p in collisions)
+    raise GmatRunError(
+        (
+            f"working_dir '{workspace_path}' already contains output files: "
+            f"{listing}; pass overwrite=True to clear them and re-run"
+        ),
+        log="",
+        path=workspace_path,
+    )
+
+
+def _format_outside_workspace_notice(workspace_path: Path, paths: Iterable[Path]) -> str:
+    """Build the one-line "out-of-workspace" notice for :attr:`Results.log`.
+
+    Returns ``""`` when every output landed inside ``workspace_path``;
+    otherwise a single line of the form ``[gmat-run] note: N output(s)
+    landed outside working_dir: <comma-separated paths>\\n`` so the notice
+    is visible at the top of the captured log without disturbing the GMAT
+    text below it.
+    """
+    try:
+        workspace_resolved = workspace_path.resolve()
+    except OSError:
+        return ""
+    outside = [p for p in paths if not _is_inside(p, workspace_resolved)]
+    if not outside:
+        return ""
+    listing = ", ".join(str(p) for p in outside)
+    return f"[gmat-run] note: {len(outside)} output(s) landed outside working_dir: {listing}\n"
+
+
+def _is_inside(path: Path, workspace_resolved: Path) -> bool:
+    """Return True if ``path`` resolves to a location under ``workspace_resolved``.
+
+    ``path`` may not exist yet (collision check fires before the run); that
+    is fine — :meth:`Path.resolve` returns the would-be absolute path against
+    the existing parents. ``OSError`` from a broken symlink along the way
+    falls through to ``False`` so the path is treated as outside (the
+    collision gate skips it; the out-of-workspace notice flags it).
+    """
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return False
+    try:
+        resolved.relative_to(workspace_resolved)
+    except ValueError:
+        return False
+    return True
 
 
 def _safe_read(path: Path) -> str:

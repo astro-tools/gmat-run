@@ -81,6 +81,10 @@ lifetime is tied to the returned [`Results`][gmat_run.Results] — the directory
 until you drop the result, so lazy DataFrame access still works after the run returns.
 Pass `working_dir=...` to write into a permanent location instead.
 
+See [Working directories](working-directories.md) for the full rules — pre-existing
+artefacts, absolute filenames in the script, permission errors, and the `overwrite=`
+opt-in for re-running into a populated workspace.
+
 ## Errors
 
 Every exception gmat-run raises inherits from [`GmatError`][gmat_run.GmatError]. Branch
