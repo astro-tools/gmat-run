@@ -126,3 +126,23 @@ jobs:
           python-version: '3.12'
       - run: pip install .
       - run: python -c "import gmat_run"
+
+  # Drift canary for the canonical GMAT image published by setup-gmat. The
+  # main `test` job runs in action-mode (`setup-gmat@v0`) on bare runners; a
+  # downstream user running container-mode CI inside `ghcr.io/astro-tools/gmat`
+  # would never benefit from that signal if the image and the action drifted
+  # apart. This single cell exercises the load → run → DataFrame round-trip
+  # inside the image, so a future image rebuild that strips a plugin, mangles
+  # `gmat_startup_file.txt`, drops a Python ABI from the bundled gmatpy set,
+  # or silently retags `:R2026a` breaks here before downstream users hit it.
+  # Tag pinned to R2026a (the test job's primary GMAT version); a R2025a cell
+  # is a follow-up after the multi-version image axis lands.
+  canonical-image-smoke:
+    name: canonical image smoke
+    runs-on: ubuntu-latest
+    container: ghcr.io/astro-tools/gmat:R2026a
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install .
+      - run: python tests/canonical_image_smoke.py
