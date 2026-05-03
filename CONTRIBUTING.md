@@ -44,14 +44,14 @@ are touching the run/load path.
 
 CI enforces two coverage gates on the Ubuntu / Python 3.12 cell:
 
-- Overall coverage must be ≥ 80%.
+- Overall coverage must be ≥ 90%.
 - The `src/gmat_run/parsers/` package must be ≥ 95%.
 
 To reproduce locally:
 
 ```bash
 uv run pytest -m "integration or not integration" --cov
-uv run coverage report --fail-under=80
+uv run coverage report --fail-under=90
 uv run coverage report --include='src/gmat_run/parsers/*' --fail-under=95
 ```
 
