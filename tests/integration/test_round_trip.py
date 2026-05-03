@@ -92,6 +92,16 @@ class Sample:
             seconds, ``Pass`` and ``Observer`` verbatim.
         rtol: Relative tolerance handed to ``assert_frame_equal``.
         atol: Absolute tolerance handed to ``assert_frame_equal``.
+        non_primary_skip_reason: If set, skip this sample on any GMAT
+            release other than R2026a (the primary target). Used for cases
+            whose drift across versions is in datetime columns, where
+            ``rtol``/``atol`` don't apply.
+        non_primary_rtol: Relative tolerance to use on non-R2026a runs;
+            falls back to ``rtol`` when None. Lets ephemeris cases absorb
+            integrator/ephemeris drift between GMAT releases without
+            slackening R2026a's regression signal.
+        non_primary_atol: Absolute tolerance to use on non-R2026a runs;
+            falls back to ``atol`` when None.
     """
 
     script_name: str
@@ -101,6 +111,9 @@ class Sample:
     script_root: Literal["install", "fixtures"] = "install"
     rtol: float = 1e-9
     atol: float = 1e-9
+    non_primary_skip_reason: str | None = None
+    non_primary_rtol: float | None = None
+    non_primary_atol: float | None = None
 
 
 SAMPLES = [
@@ -136,6 +149,13 @@ SAMPLES = [
         ephemerides={"EF": "Ex_LEOEphemeris__EF"},
         rtol=1e-6,
         atol=1e-6,
+        # Cross-release integrator/ephemeris drift on the same script is
+        # ~6e-5 km at peak — looser tolerance still catches parser/coercion
+        # regressions (which move values by orders of magnitude more) and
+        # keeps R2026a's strict signal intact via the primary tolerances
+        # above.
+        non_primary_rtol=1e-4,
+        non_primary_atol=1e-3,
     ),
     Sample(
         # Mirrors Ex_LEOEphemeris but emits STK-TimePosVel instead of
@@ -150,6 +170,8 @@ SAMPLES = [
         ephemerides={"EF": "Ex_STKEphemeris__EF"},
         rtol=1e-6,
         atol=1e-6,
+        non_primary_rtol=1e-4,
+        non_primary_atol=1e-3,
     ),
     Sample(
         # Six ContactLocators in one mission cover all six ReportFormat
@@ -174,6 +196,15 @@ SAMPLES = [
         },
         rtol=1e-6,
         atol=1e-6,
+        # Contact start/stop epochs drift by ~1 ms between R2025a and R2026a,
+        # and assert_frame_equal ignores rtol/atol on datetime columns —
+        # a tolerance bump can't absorb this. R2026a remains the primary
+        # target for parser regression coverage; cross-release contact-time
+        # equivalence isn't a property gmat-run owns.
+        non_primary_skip_reason=(
+            "ContactLocator epochs drift by ~1 ms across GMAT releases; "
+            "assert_frame_equal can't tolerate datetime drift"
+        ),
     ),
 ]
 
@@ -291,12 +322,19 @@ def _write_golden(
 def test_sample_round_trip(
     sample: Sample,
     gmat_available: None,
+    gmat_version: str,
     samples_dir: Path,
     fixtures_dir: Path,
     golden_dir: Path,
     tmp_path: Path,
     regenerate_golden: bool,
 ) -> None:
+    is_primary = gmat_version == "R2026a"
+    if not is_primary and sample.non_primary_skip_reason and not regenerate_golden:
+        pytest.skip(f"{sample.script_name}: {sample.non_primary_skip_reason}")
+    rtol = sample.rtol if is_primary else (sample.non_primary_rtol or sample.rtol)
+    atol = sample.atol if is_primary else (sample.non_primary_atol or sample.atol)
+
     actual_reports, actual_eph, actual_contacts = _run_sample(
         sample, samples_dir, fixtures_dir, tmp_path
     )
@@ -345,8 +383,8 @@ def test_sample_round_trip(
         assert_frame_equal(
             actual,
             expected,
-            rtol=sample.rtol,
-            atol=sample.atol,
+            rtol=rtol,
+            atol=atol,
             check_dtype=True,
             check_like=False,
         )

@@ -47,6 +47,29 @@ R2022a is therefore listed as "expected to work" but is not exercised in CI.
 If you depend on R2022a and hit a regression, file an issue and we'll add a
 targeted cell.
 
+## Some integration tests are R2026a-only
+
+The integration suite under `tests/integration/` runs across the full CI
+matrix, but a small handful of tests skip on GMAT releases other than R2026a:
+
+- `test_attitude_inputs_*` — `Mission.attitude_inputs` walks `Spacecraft`
+  resources via gmatpy's `GetField("Attitude")` accessor, whose return shape
+  has drifted between releases. The discovery path is exercised on R2026a;
+  tracking every release's accessor isn't worth the test churn.
+- `test_sample_round_trip[Ex_ContactLocatorAllFormats]` — contact start/stop
+  epochs drift by ~1 ms between R2025a and R2026a, and
+  `pandas.testing.assert_frame_equal` ignores `rtol`/`atol` on datetime
+  columns. Skipped rather than papered over with a coarser comparator.
+
+Position-only ephemeris round-trips (`Ex_LEOEphemeris`, `Ex_STKEphemeris`)
+run on every release with looser tolerances on non-R2026a runs to absorb
+integrator/ephemeris drift; R2026a keeps strict tolerances so the regression
+signal there isn't slackened.
+
+If you're running the suite locally against R2025a (or any non-primary
+release), expect a handful of `SKIPPED` lines for these tests. Real
+gmat-run regressions still surface elsewhere.
+
 ## Output paths must be set via `Filename`, not `OUTPUT_PATH`
 
 `FileManager.OUTPUT_PATH` and `GmatGlobal.SetOutputPath` look like the right
