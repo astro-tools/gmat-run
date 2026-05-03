@@ -38,6 +38,7 @@ nav:
   - Install GMAT: install-gmat.md
   - Working directories: working-directories.md
   - Wall-clock timeouts: timeouts.md
+  - Run gmat-run in CI: ci-with-setup-gmat.md
   - CLI usage: cli.md
   - Examples:
       - examples/index.md

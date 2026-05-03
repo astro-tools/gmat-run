@@ -4,6 +4,10 @@ gmat-run does not ship GMAT binaries. Install GMAT separately from
 [gmat.gsfc.nasa.gov](https://gmat.gsfc.nasa.gov/) or directly from
 [SourceForge](https://sourceforge.net/projects/gmat/files/GMAT/).
 
+If you're running gmat-run in GitHub Actions, see
+[Run gmat-run in your CI](ci-with-setup-gmat.md) instead — `setup-gmat`
+handles the install for you.
+
 ## Supported versions
 
 | GMAT version          | Status                                                                                |
