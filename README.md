@@ -121,6 +121,8 @@ and sample output.
 Full docs at **<https://astro-tools.github.io/gmat-run/>**, including a
 [getting-started guide](https://astro-tools.github.io/gmat-run/getting-started/),
 [GMAT install instructions](https://astro-tools.github.io/gmat-run/install-gmat/),
+a [Run gmat-run in your CI](https://astro-tools.github.io/gmat-run/ci-with-setup-gmat/)
+cookbook page,
 the [CLI reference](https://astro-tools.github.io/gmat-run/cli/),
 and the [API reference](https://astro-tools.github.io/gmat-run/reference/).
 
