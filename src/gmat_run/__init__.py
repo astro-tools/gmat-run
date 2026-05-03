@@ -12,10 +12,12 @@ from gmat_run.install import GmatInstall, locate_gmat
 from gmat_run.mission import Mission
 from gmat_run.results import Results
 from gmat_run.runtime import bootstrap
+from gmat_run.summary import CommandOutline, MissionSummary, ResourceGroup
 
 __version__ = "0.3.0"
 
 __all__ = [
+    "CommandOutline",
     "GmatError",
     "GmatFieldError",
     "GmatInstall",
@@ -24,6 +26,8 @@ __all__ = [
     "GmatOutputParseError",
     "GmatRunError",
     "Mission",
+    "MissionSummary",
+    "ResourceGroup",
     "Results",
     "__version__",
     "bootstrap",

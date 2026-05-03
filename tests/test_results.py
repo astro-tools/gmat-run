@@ -599,3 +599,51 @@ def test_write_oem_all_with_no_ephemerides_creates_empty_dir(tmp_path: Path) -> 
     dest = result.write_oem_all(tmp_path / "empty")
     assert dest.is_dir()
     assert list(dest.iterdir()) == []
+
+
+# --- __repr__ / _repr_html_ --------------------------------------------------
+
+
+def test_repr_replaces_default_address_form(tmp_path: Path) -> None:
+    result = _empty(tmp_path)
+    assert "<gmat_run.results.Results object" not in repr(result)
+
+
+def test_repr_format_shows_per_mapping_counts(tmp_path: Path) -> None:
+    result = Results(
+        output_dir=tmp_path,
+        log="",
+        report_paths={"RF1": tmp_path / "rf1.txt", "RF2": tmp_path / "rf2.txt"},
+        ephemeris_paths={"Eph1": tmp_path / "e1.oem"},
+    )
+    assert repr(result) == "Results(reports=2, ephemerides=1, contacts=0)"
+
+
+def test_repr_html_returns_table_listing_mapping_names(tmp_path: Path) -> None:
+    result = Results(
+        output_dir=tmp_path,
+        log="",
+        report_paths={"RF1": tmp_path / "rf1.txt"},
+        ephemeris_paths={"Eph1": tmp_path / "e1.oem"},
+    )
+    html_str = result._repr_html_()
+    assert "<table" in html_str
+    assert "<code>reports</code>" in html_str
+    assert "<code>ephemerides</code>" in html_str
+    assert "<code>contacts</code>" in html_str
+    assert "RF1" in html_str
+    assert "Eph1" in html_str
+    assert "<em>none</em>" in html_str  # contacts is empty
+
+
+def test_repr_html_does_not_materialise_dataframes(tmp_path: Path) -> None:
+    # The HTML repr only sees keys; touching reports[name] would parse the
+    # underlying file (which doesn't exist here) and raise. Verifying the
+    # repr renders without I/O is the regression we care about: notebook
+    # users get a useful overview of a Results without paying the parse cost.
+    result = Results(
+        output_dir=tmp_path,
+        log="",
+        report_paths={"RF1": tmp_path / "missing.txt"},
+    )
+    assert "RF1" in result._repr_html_()

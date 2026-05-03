@@ -51,6 +51,7 @@ nav:
       - reference/index.md
       - Mission: reference/mission.md
       - Results: reference/results.md
+      - Mission summary: reference/summary.md
       - Install discovery: reference/install.md
       - Runtime bootstrap: reference/runtime.md
       - Exceptions: reference/errors.md

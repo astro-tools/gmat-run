@@ -17,6 +17,11 @@ The reference splits into one page per module:
   [`Mission.run`][gmat_run.Mission.run]: `reports`, `ephemerides`, `contacts`
   as lazy `Mapping[str, pandas.DataFrame]`, plus
   [`Results.persist`][gmat_run.Results.persist].
+- [Mission summary](summary.md) — the dataclass schema returned by
+  [`Mission.summary`][gmat_run.Mission.summary]
+  ([`MissionSummary`][gmat_run.MissionSummary],
+  [`ResourceGroup`][gmat_run.ResourceGroup],
+  [`CommandOutline`][gmat_run.CommandOutline]).
 - [Install discovery](install.md) —
   [`locate_gmat`][gmat_run.locate_gmat] and the
   [`GmatInstall`][gmat_run.GmatInstall] dataclass.

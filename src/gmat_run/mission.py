@@ -38,6 +38,7 @@ from gmat_run.install import GmatInstall, locate_gmat
 from gmat_run.parsers.aem_ephemeris import parse as _parse_aem_ephemeris
 from gmat_run.results import Results
 from gmat_run.runtime import bootstrap
+from gmat_run.summary import MissionSummary, build_mission_summary
 
 __all__ = ["Mission"]
 
@@ -233,6 +234,29 @@ class Mission:
         ``__getitem__`` / ``__setitem__`` interface.
         """
         return self._gmat
+
+    def summary(self) -> MissionSummary:
+        """Return a structured snapshot of this loaded mission.
+
+        See :class:`~gmat_run.summary.MissionSummary` for the schema. Walks
+        the gmat object graph each call — there is no cache, so a Mission
+        whose fields were edited via ``__setitem__`` and re-summarised
+        reflects the latest state. The walk only enumerates resources by name
+        and the command graph one level deep; it does not materialise field
+        values (use ``mission["Sat.SMA"]`` for that).
+        """
+        return build_mission_summary(self._gmat, self.script_path)
+
+    def __repr__(self) -> str:
+        summary = self.summary()
+        return (
+            f"Mission({summary.script_name!r}, "
+            f"spacecraft={summary.spacecraft_count}, "
+            f"commands={summary.command_count})"
+        )
+
+    def _repr_html_(self) -> str:
+        return self.summary()._repr_html_()
 
     def __getitem__(self, dotted: str) -> Any:
         resource, field = _split_path(dotted)

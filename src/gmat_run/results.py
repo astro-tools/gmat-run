@@ -36,6 +36,7 @@ from gmat_run.parsers.spk import is_spk_ephemeris as _is_spk_ephemeris
 from gmat_run.parsers.spk import parse as _parse_spk_ephemeris
 from gmat_run.parsers.stk_ephemeris import is_stk_ephemeris as _is_stk_ephemeris
 from gmat_run.parsers.stk_ephemeris import parse as _parse_stk_ephemeris
+from gmat_run.summary import format_results_html as _format_results_html
 from gmat_run.writers.oem import write_oem as _write_oem
 
 __all__ = ["Results"]
@@ -226,6 +227,20 @@ class Results:
         self.contact_paths = MappingProxyType(con_paths)
         self.ephemerides = _LazyEphemerides(eph_paths)
         self.contacts = _LazyContacts(con_paths)
+
+    def __repr__(self) -> str:
+        return (
+            f"Results(reports={len(self.reports)}, "
+            f"ephemerides={len(self.ephemerides)}, "
+            f"contacts={len(self.contacts)})"
+        )
+
+    def _repr_html_(self) -> str:
+        return _format_results_html(
+            report_names=tuple(self.reports),
+            ephemeris_names=tuple(self.ephemerides),
+            contact_names=tuple(self.contacts),
+        )
 
     def persist(self, path: str | os.PathLike[str]) -> Results:
         """Copy every output artefact under :attr:`output_dir` into ``path``.

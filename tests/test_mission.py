@@ -15,6 +15,7 @@ import gc
 import os
 import warnings
 from collections.abc import Iterator
+from itertools import pairwise
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -178,6 +179,48 @@ class _FakeAPIException(Exception):
     """Stand-in for the real ``gmatpy.APIException`` raised by the engine."""
 
 
+class _FakeCommand:
+    """Minimal stand-in for a GmatCommand node, used by Mission.summary tests."""
+
+    def __init__(
+        self,
+        type_name: str,
+        *,
+        generating: str = "",
+        children: list[_FakeCommand] | None = None,
+        is_branch: bool = False,
+    ) -> None:
+        self._type = type_name
+        self._generating = generating
+        self._children = children or []
+        self._is_branch = is_branch
+        self._next: _FakeCommand | None = None
+
+    def GetTypeName(self) -> str:
+        return self._type
+
+    def GetGeneratingString(self) -> str:
+        return self._generating
+
+    def IsOfType(self, type_name: str) -> bool:
+        if type_name == "BranchCommand":
+            return self._is_branch
+        return type_name == self._type
+
+    def GetNext(self) -> _FakeCommand | None:
+        return self._next
+
+    def GetChildCommand(self, *_args: Any) -> _FakeCommand | None:
+        return self._children[0] if self._children else None
+
+
+def _link_commands(*commands: _FakeCommand) -> _FakeCommand:
+    """Wire the sequence as a sibling chain via ``GetNext`` and return the head."""
+    for prev, nxt in pairwise(commands):
+        prev._next = nxt
+    return commands[0]
+
+
 def _make_fake_gmat(
     objects: dict[str, _FakeObject] | None = None,
     *,
@@ -185,6 +228,7 @@ def _make_fake_gmat(
     run_script_status: int = 1,
     run_script_raises: BaseException | None = None,
     log_text: str = "fake gmat log\n",
+    first_command: _FakeCommand | None = None,
 ) -> ModuleType:
     """Build a fake gmatpy module with the bits Mission touches.
 
@@ -193,6 +237,11 @@ def _make_fake_gmat(
     ``GmatGlobal.Instance().SetOutputPath``, ``Moderator.Instance()`` (with
     ``GetListOfObjects`` keyed by the ``SUBSCRIBER`` / ``EVENT_LOCATOR`` enum
     values), and ``APIException``.
+
+    ``first_command`` is the head of the mission-sequence linked list returned
+    by :meth:`gmat.Moderator.Instance().GetFirstCommand`. ``None`` (the
+    default) makes ``GetFirstCommand`` return ``None`` — :func:`Mission.summary`
+    treats that as an empty mission sequence.
     """
     module = ModuleType("fake_gmat")
     for attr, code in _TYPE_CODES.items():
@@ -220,6 +269,9 @@ def _make_fake_gmat(
                 for name, obj in registry.items()
                 if _OBJECT_TYPE_OF_CLASS.get(obj.GetTypeName()) == kind
             ]
+
+        def GetFirstCommand(self) -> _FakeCommand | None:
+            return first_command
 
     class _ModeratorProxy:
         @staticmethod
@@ -1445,3 +1497,104 @@ class TestAttitudeInputs:
         mission.gmat._registry.clear()
         second = dict(mission.attitude_input_paths)
         assert first == second
+
+
+# --- Mission.summary / __repr__ / _repr_html_ ---------------------------------
+
+
+class TestMissionSummary:
+    """Cover the dataclass-shaped summary and notebook reprs on Mission."""
+
+    def test_summary_returns_mission_summary_with_resource_groups(self, tmp_path: Path) -> None:
+        gmat = _make_fake_gmat(
+            {
+                "Sat": _spacecraft(),
+                "ReportFile1": _report_file(),
+                "EphFile1": _ephemeris_file(),
+                "Contacts": _contact_locator(),
+            }
+        )
+        install = _make_install(tmp_path / "gmat")
+        mission = Mission(gmat=gmat, install=install, script_path=tmp_path / "flyby.script")
+
+        summary = mission.summary()
+        from gmat_run.summary import MissionSummary
+
+        assert isinstance(summary, MissionSummary)
+        assert summary.script_name == "flyby.script"
+        categories = {g.category: g.names for g in summary.resource_groups}
+        assert categories["Spacecraft"] == ("Sat",)
+        assert categories["ReportFile"] == ("ReportFile1",)
+        assert categories["EphemerisFile"] == ("EphFile1",)
+        assert categories["ContactLocator"] == ("Contacts",)
+        assert summary.spacecraft_count == 1
+
+    def test_summary_output_resources_only_lists_file_producers(self, tmp_path: Path) -> None:
+        gmat = _make_fake_gmat(
+            {
+                "Sat": _spacecraft(),
+                "ReportFile1": _report_file(),
+            }
+        )
+        install = _make_install(tmp_path / "gmat")
+        mission = Mission(gmat=gmat, install=install, script_path=tmp_path / "outputs.script")
+
+        summary = mission.summary()
+        output_categories = [g.category for g in summary.output_resources]
+        assert output_categories == ["ReportFile"]
+
+    def test_summary_walks_command_sequence_when_exposed(self, tmp_path: Path) -> None:
+        head = _link_commands(
+            _FakeCommand("BeginMissionSequence"),
+            _FakeCommand("Propagate", generating="Propagate Prop(Sat) {Sat.ElapsedDays = 1};"),
+            _FakeCommand("Maneuver", generating="Maneuver TOI(Sat);"),
+        )
+        gmat = _make_fake_gmat({"Sat": _spacecraft()}, first_command=head)
+        install = _make_install(tmp_path / "gmat")
+        mission = Mission(gmat=gmat, install=install, script_path=tmp_path / "seq.script")
+
+        summary = mission.summary()
+        assert [c.type_name for c in summary.commands] == ["Propagate", "Maneuver"]
+        assert summary.command_count == 2
+
+    def test_summary_reflects_post_load_field_writes(self, tmp_path: Path) -> None:
+        # The summary walks the live graph each call — no caching — so
+        # adding a resource via the underlying registry between summary()
+        # invocations should be visible on the second one.
+        gmat = _make_fake_gmat({"Sat": _spacecraft()})
+        install = _make_install(tmp_path / "gmat")
+        mission = Mission(gmat=gmat, install=install, script_path=tmp_path / "x.script")
+
+        first = mission.summary()
+        assert first.spacecraft_count == 1
+
+        gmat._registry["Sat2"] = _spacecraft("Sat2")
+        second = mission.summary()
+        assert second.spacecraft_count == 2
+
+    def test_repr_replaces_default_address_form(self, tmp_path: Path) -> None:
+        gmat = _make_fake_gmat({"Sat": _spacecraft()})
+        install = _make_install(tmp_path / "gmat")
+        mission = Mission(gmat=gmat, install=install, script_path=tmp_path / "flyby.script")
+        text = repr(mission)
+        assert "<gmat_run.mission.Mission object" not in text
+
+    def test_repr_format_shows_script_spacecraft_and_command_counts(self, tmp_path: Path) -> None:
+        head = _link_commands(
+            _FakeCommand("BeginMissionSequence"),
+            _FakeCommand("Propagate"),
+            _FakeCommand("Maneuver"),
+        )
+        gmat = _make_fake_gmat({"Sat": _spacecraft()}, first_command=head)
+        install = _make_install(tmp_path / "gmat")
+        mission = Mission(gmat=gmat, install=install, script_path=tmp_path / "flyby.script")
+        assert repr(mission) == "Mission('flyby.script', spacecraft=1, commands=2)"
+
+    def test_repr_html_returns_html_string(self, tmp_path: Path) -> None:
+        gmat = _make_fake_gmat({"Sat": _spacecraft()})
+        install = _make_install(tmp_path / "gmat")
+        mission = Mission(gmat=gmat, install=install, script_path=tmp_path / "flyby.script")
+        html_str = mission._repr_html_()
+        assert "<table" in html_str
+        assert "<code>flyby.script</code>" in html_str
+        assert "Spacecraft" in html_str
