@@ -8,16 +8,17 @@
 
 ### Supported GMAT versions
 
-| GMAT release | Status                     | CI                                                 |
-| ------------ | -------------------------- | -------------------------------------------------- |
-| R2026a       | Primary development target | Exercised on every PR (Ubuntu + Windows + macOS)   |
-| R2025a       | Expected to work           | Not exercised in CI                                |
-| R2024a       | Expected to work           | Not exercised in CI                                |
-| R2023a       | Expected to work           | Not exercised in CI                                |
-| R2022a       | Expected to work           | Not exercised in CI                                |
+| GMAT release | Status                     | CI                                                                                |
+| ------------ | -------------------------- | --------------------------------------------------------------------------------- |
+| R2026a       | Primary development target | Exercised on every PR (Ubuntu + Windows + macOS, Python 3.10/3.11/3.12)           |
+| R2025a       | Supported                  | Exercised on every PR (Ubuntu + Windows + macOS, Python 3.10/3.11/3.12)           |
+| R2024a       | Expected to work           | Not exercised in CI                                                               |
+| R2023a       | Expected to work           | Not exercised in CI                                                               |
+| R2022a       | Expected to work           | Not exercised in CI (Python 3.9 ABI floor; see [known limitations][r2022a-floor]) |
 
-A wider CI matrix is planned for a follow-up release; report any version-specific
-breakage as an issue and we'll add a CI cell for it.
+[r2022a-floor]: known-limitations.md#r2022a-is-not-exercised-in-ci
+
+Report any version-specific breakage as an issue and we'll add a CI cell for it.
 
 ## Install gmat-run
 

@@ -35,6 +35,18 @@ R2026a ships builds for Python 3.10, 3.11, and 3.12. Older Python interpreters
 or 3.13+ are not supported by the bundled `gmatpy` and cannot be made to work
 without rebuilding GMAT from source.
 
+## R2022a is not exercised in CI
+
+R2022a's bundled `gmatpy` tops out at Python 3.9 across all three OSes, while
+gmat-run pins `python>=3.10` in `pyproject.toml`. The two constraints are
+incompatible — a CI cell on R2022a would have to drop the Python floor for
+gmat-run as a whole or pin a one-off interpreter just for that cell. Neither
+trade-off pays for itself given how few users run R2022a today.
+
+R2022a is therefore listed as "expected to work" but is not exercised in CI.
+If you depend on R2022a and hit a regression, file an issue and we'll add a
+targeted cell.
+
 ## Output paths must be set via `Filename`, not `OUTPUT_PATH`
 
 `FileManager.OUTPUT_PATH` and `GmatGlobal.SetOutputPath` look like the right
