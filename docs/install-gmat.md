@@ -6,13 +6,15 @@ gmat-run does not ship GMAT binaries. Install GMAT separately from
 
 ## Supported versions
 
-| GMAT version    | Status                                                                  |
-| --------------- | ----------------------------------------------------------------------- |
-| R2026a          | Primary development target; exercised in CI on every PR.                |
-| R2024a, R2025a  | Supported; exercised in release CI.                                     |
-| R2022a, R2023a  | Supported on a best-effort basis.                                       |
-| Earlier         | Not supported. gmatpy ships per-Python-minor shared libraries, and    |
-|                 | older releases may not match Python 3.10+.                              |
+| GMAT version          | Status                                                                                |
+| --------------------- | ------------------------------------------------------------------------------------- |
+| R2026a                | Primary development target; exercised on every PR (Ubuntu + Windows + macOS, Python 3.10/3.11/3.12). |
+| R2025a                | Supported; exercised on every PR (Ubuntu + Windows + macOS, Python 3.10/3.11/3.12).   |
+| R2023a, R2024a        | Supported on a best-effort basis; not exercised in CI.                                |
+| R2022a                | Best-effort; not exercised in CI (Python 3.9 ABI floor; see [known limitations][r2022a-floor]). |
+| Earlier               | Not supported. gmatpy ships per-Python-minor shared libraries; older releases predate Python 3.10. |
+
+[r2022a-floor]: known-limitations.md#r2022a-is-not-exercised-in-ci
 
 ## Windows
 

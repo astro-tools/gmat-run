@@ -73,6 +73,18 @@ def samples_dir(gmat_available: None) -> Path:
 
 
 @pytest.fixture(scope="session")
+def gmat_version(gmat_available: None) -> str:
+    """The detected GMAT release tag (e.g. ``"R2026a"``).
+
+    Tests that depend on R2026a-specific gmatpy behaviour or compare against
+    R2026a-shaped goldens use this to skip or relax themselves on other
+    releases. Returns ``"unknown"`` when the install path doesn't carry a
+    parseable release tag — treated as "not the primary version" by callers.
+    """
+    return locate_gmat().version or "unknown"
+
+
+@pytest.fixture(scope="session")
 def golden_dir() -> Path:
     """Where the committed integration golden CSVs live."""
     return Path(__file__).parent / "golden"
