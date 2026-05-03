@@ -86,6 +86,13 @@ See [Working directories](working-directories.md) for the full rules — pre-exi
 artefacts, absolute filenames in the script, permission errors, and the `overwrite=`
 opt-in for re-running into a populated workspace.
 
+## Running in CI
+
+In GitHub Actions, install GMAT with
+[`astro-tools/setup-gmat`](https://github.com/astro-tools/setup-gmat) and add a
+`pip install gmat-run` step — see
+[Run gmat-run in your CI](ci-with-setup-gmat.md) for a copy-paste workflow.
+
 ## Errors
 
 Every exception gmat-run raises inherits from [`GmatError`][gmat_run.GmatError]. Branch
