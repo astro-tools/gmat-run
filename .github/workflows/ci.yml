@@ -11,14 +11,20 @@ concurrency:
 
 jobs:
   test:
-    name: test (${{ matrix.os }}, py${{ matrix.python-version }})
+    name: test (${{ matrix.os }}, py${{ matrix.python-version }}, ${{ matrix.gmat-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
+      # Full cross-product: 3 OSes × 3 Python minors × 2 GMAT releases = 18 cells.
+      # R2026a is the primary target; R2025a is the previous release we still
+      # support. R2022a–R2024a stay out of CI: R2022a's gmatpy ABI floor is
+      # Python 3.9, below this project's `python>=3.10` pin (see
+      # docs/known-limitations.md).
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ['3.10', '3.11', '3.12']
+        gmat-version: [R2025a, R2026a]
     steps:
       - uses: actions/checkout@v4
 
@@ -35,7 +41,7 @@ jobs:
 
       - uses: astro-tools/setup-gmat@v0
         with:
-          version: R2026a
+          version: ${{ matrix.gmat-version }}
           cache: true
 
       - name: Install project
@@ -49,14 +55,14 @@ jobs:
 
       # Threshold gates run on a single matrix combination — the .coverage
       # data is identical across runners, so there's no point re-asserting
-      # it on six. Per-package gate (parsers/) matches the v0.1 charter
-      # DoD; overall gate is the project-wide floor.
+      # it on every cell. Per-package gate (parsers/) matches the v0.1
+      # charter DoD; overall gate is the project-wide floor.
       - name: Enforce overall coverage (>=80%)
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' && matrix.gmat-version == 'R2026a'
         run: uv run coverage report --fail-under=80
 
       - name: Enforce parsers coverage (>=95%)
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' && matrix.gmat-version == 'R2026a'
         run: uv run coverage report --include='src/gmat_run/parsers/*' --fail-under=95
 
       # Smoke-execute the example notebook end-to-end. This catches the
@@ -64,7 +70,7 @@ jobs:
       # notebook" regression. One matrix combo is enough — the underlying
       # script path is covered cross-platform by test_round_trip.
       - name: Smoke-execute example notebooks
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' && matrix.gmat-version == 'R2026a'
         run: |
           uv sync --all-groups --extra examples
           uv run jupyter execute docs/examples/01_load_run_plot.ipynb
