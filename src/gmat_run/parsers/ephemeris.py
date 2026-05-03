@@ -213,7 +213,7 @@ def _split(lines: list[str], path: Path) -> tuple[dict[str, str], list[_Segment]
             continue
 
         if in_covariance:
-            # Covariance blocks are not exposed in v0.2 — silently consumed.
+            # Covariance blocks are not exposed — silently consumed.
             continue
 
         if in_meta:

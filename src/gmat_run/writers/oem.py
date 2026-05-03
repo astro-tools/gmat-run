@@ -11,8 +11,8 @@ The writer is gated behind the ``[ccsds-ndm]`` extra; importing this module
 without ``ccsds-ndm`` installed surfaces an :class:`ImportError` with a hint
 the moment :func:`write_oem` is called.
 
-Multi-segment OEM output is deliberately not supported in v0.3 — every call
-emits a single segment containing every row of the DataFrame in file order.
+Multi-segment OEM output is deliberately not supported — every call emits a
+single segment containing every row of the DataFrame in file order.
 ``df.attrs["segments"]`` is ignored. Covariance blocks are also out of scope.
 """
 

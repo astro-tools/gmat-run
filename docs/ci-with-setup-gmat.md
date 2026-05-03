@@ -58,7 +58,7 @@ the same step as gmat-run itself:
 | Extra          | Pulls in                                                                    |
 | -------------- | --------------------------------------------------------------------------- |
 | `[spiceypy]`   | SPK ephemeris parsing in [`Results.ephemerides`][gmat_run.Results].         |
-| `[ccsds-ndm]`  | CCSDS-NDM (OEM/OPM) parsing on the same lazy mapping.                       |
+| `[ccsds-ndm]`  | CCSDS-OEM export via [`Results.write_oem`][gmat_run.Results.write_oem].     |
 | `[astropy]`    | [`gmat_run.time`](reference/time.md) leap-second-correct time-scale conversion. |
 
 The extras compose; pass several in one bracketed list as above.

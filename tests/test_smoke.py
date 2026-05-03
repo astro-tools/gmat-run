@@ -4,4 +4,4 @@ import gmat_run
 
 
 def test_import() -> None:
-    assert gmat_run.__version__ == "0.3.0"
+    assert gmat_run.__version__ == "0.4.0"

@@ -168,7 +168,7 @@ def test_unknown_report_key_raises(tmp_path: Path) -> None:
     assert excinfo.value.args == ("does_not_exist",)
 
 
-# --- ephemerides (lazy, v0.2) ------------------------------------------------
+# --- ephemerides (lazy) ------------------------------------------------------
 
 
 _EPH_FILE = """\

@@ -314,7 +314,7 @@ def test_non_numeric_state_raises(tmp_path: Path) -> None:
 
 
 def test_covariance_blocks_silently_consumed(tmp_path: Path) -> None:
-    """v0.2 doesn't expose covariance; the parser must skip the block cleanly."""
+    """The parser does not expose covariance; the block must be skipped cleanly."""
     cov = (
         "COVARIANCE_START\n"
         "EPOCH = 2026-01-01T12:00:00.000\n"
