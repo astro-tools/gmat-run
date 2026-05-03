@@ -57,9 +57,9 @@ jobs:
       # data is identical across runners, so there's no point re-asserting
       # it on every cell. Per-package gate (parsers/) matches the v0.1
       # charter DoD; overall gate is the project-wide floor.
-      - name: Enforce overall coverage (>=80%)
+      - name: Enforce overall coverage (>=90%)
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' && matrix.gmat-version == 'R2026a'
-        run: uv run coverage report --fail-under=80
+        run: uv run coverage report --fail-under=90
 
       - name: Enforce parsers coverage (>=95%)
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' && matrix.gmat-version == 'R2026a'
