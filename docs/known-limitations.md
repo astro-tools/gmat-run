@@ -35,6 +35,20 @@ R2026a ships builds for Python 3.10, 3.11, and 3.12. Older Python interpreters
 or 3.13+ are not supported by the bundled `gmatpy` and cannot be made to work
 without rebuilding GMAT from source.
 
+## Canonical-image drift is covered by a single CI canary
+
+The main `test` matrix runs in action-mode (`astro-tools/setup-gmat@v0`) on
+bare runners — it does not exercise the canonical `ghcr.io/astro-tools/gmat`
+container image. A separate `canonical-image-smoke` CI cell runs `pip install
+gmat-run` and a small `Mission.load → run → assert non-empty ReportFile`
+round-trip inside `ghcr.io/astro-tools/gmat:R2026a` on every PR and every
+push to `main`. It is the canary for image-vs-action drift: a stripped
+plugin, a mangled `gmat_startup_file.txt`, a dropped Python ABI from the
+bundled `gmatpy` set, or a tag that silently retargets a different GMAT
+upload all surface here before downstream consumers running container-mode
+CI hit them. The cell is pinned to `:R2026a`; the matrix coverage of the
+image across multiple GMAT releases lives in setup-gmat itself.
+
 ## R2022a is not exercised in CI
 
 R2022a's bundled `gmatpy` tops out at Python 3.9 across all three OSes, while
