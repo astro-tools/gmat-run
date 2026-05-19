@@ -383,6 +383,31 @@ def _contact_locator(name: str = "Contacts", filename: str = "contacts.txt") -> 
     return _FakeObject("ContactLocator", name, fields)
 
 
+def _force_model(name: str = "FM") -> _FakeObject:
+    """ForceModel with a drag sub-resource — the canonical multi-dot case.
+
+    GMAT internally routes ``FM.Drag.<field>`` through the DragForce
+    sub-object. The fake registers dotted field names directly so the
+    grammar layer's path-passthrough is exercised without modelling the
+    sub-object explicitly.
+    """
+    fields: dict[str, tuple[int, Any, bool]] = {
+        "CentralBody": (_TYPE_CODES["OBJECT_TYPE"], "Earth", False),
+        "Drag": (_TYPE_CODES["ENUMERATION_TYPE"], "JacchiaRoberts", False),
+        "Drag.AtmosphereModel": (_TYPE_CODES["ENUMERATION_TYPE"], "JacchiaRoberts", False),
+        "Drag.CSSISpaceWeatherFile": (_TYPE_CODES["FILENAME_TYPE"], "weather.txt", False),
+    }
+    return _FakeObject("ForceModel", name, fields)
+
+
+def _variable(name: str = "elapsed_seconds", initial: float = 0.0) -> _FakeObject:
+    """GMAT ``Variable`` resource — the ``Variable.Value`` override case."""
+    fields: dict[str, tuple[int, Any, bool]] = {
+        "Value": (_TYPE_CODES["REAL_TYPE"], initial, False),
+    }
+    return _FakeObject("Variable", name, fields)
+
+
 # --- fixtures -----------------------------------------------------------------
 
 
@@ -811,12 +836,18 @@ class TestErrors:
     def test_path_with_no_dot(self, mission: Mission) -> None:
         with pytest.raises(GmatFieldError) as excinfo:
             _ = mission["Sat"]
-        assert "exactly one dot" in str(excinfo.value)
+        assert "at least one dot" in str(excinfo.value)
 
-    def test_path_with_multiple_dots(self, mission: Mission) -> None:
+    def test_path_with_multiple_dots_is_valid_grammar(self, mission: Mission) -> None:
+        # Multi-dot is the SubResource grammar (e.g. FM.Drag.CSSISpaceWeatherFile).
+        # The split-path layer accepts it; whether the resolved (sub-)field
+        # exists is GMAT's call. Here the fake Spacecraft has no
+        # ``Tanks.MainTank`` parameter, so the field resolver raises
+        # ``unknown field`` against the resource's type — not a split-level
+        # syntax error.
         with pytest.raises(GmatFieldError) as excinfo:
             _ = mission["Sat.Tanks.MainTank"]
-        assert "exactly one dot" in str(excinfo.value)
+        assert "unknown field 'Tanks.MainTank'" in str(excinfo.value)
 
     def test_path_with_empty_resource(self, mission: Mission) -> None:
         with pytest.raises(GmatFieldError) as excinfo:
@@ -847,6 +878,91 @@ def test_setitem_calls_set_field_on_underlying_object(mission: Mission) -> None:
     assert isinstance(sat, _FakeObject)
     mission["Sat.SMA"] = 7123.45
     assert ("SMA", 7123.45) in sat.set_calls
+
+
+# --- extended grammar: multi-dot sub-resource paths and Variable.Value -------
+
+
+class TestExtendedGrammar:
+    """``Resource.SubResource.Field`` and ``Variable.Value`` round-trip tests.
+
+    GMAT's ``GetParameterID``/``GetField``/``SetField`` accept dotted
+    sub-resource paths natively — ``FM.Drag.CSSISpaceWeatherFile`` is
+    routed through the DragForce sub-object inside GMAT, with no
+    Python-side walk needed. The grammar layer just relaxes the
+    single-dot restriction.
+    """
+
+    def _mission_with(self, tmp_path: Path, **extras: _FakeObject) -> Mission:
+        objects: dict[str, _FakeObject] = {"Sat": _spacecraft()}
+        objects.update(extras)
+        gmat = _make_fake_gmat(objects)
+        install = _make_install(tmp_path / "gmat")
+        return Mission(gmat=gmat, install=install, script_path=tmp_path / "mission.script")
+
+    # --- multi-dot (#103) ----------------------------------------------------
+
+    def test_multi_dot_read_returns_value(self, tmp_path: Path) -> None:
+        mission = self._mission_with(tmp_path, FM=_force_model())
+        assert mission["FM.Drag.CSSISpaceWeatherFile"] == "weather.txt"
+
+    def test_multi_dot_write_persists(self, tmp_path: Path) -> None:
+        fm = _force_model()
+        mission = self._mission_with(tmp_path, FM=fm)
+        mission["FM.Drag.CSSISpaceWeatherFile"] = "/abs/cssi.txt"
+        assert ("Drag.CSSISpaceWeatherFile", "/abs/cssi.txt") in fm.set_calls
+        assert mission["FM.Drag.CSSISpaceWeatherFile"] == "/abs/cssi.txt"
+
+    def test_multi_dot_unknown_field_raises_gmat_field_error(self, tmp_path: Path) -> None:
+        mission = self._mission_with(tmp_path, FM=_force_model())
+        with pytest.raises(GmatFieldError) as excinfo:
+            _ = mission["FM.Drag.NotAField"]
+        # The error names the failing field portion verbatim so users can
+        # spot whether the typo is in the parent or the leaf.
+        assert "unknown field 'Drag.NotAField'" in str(excinfo.value)
+
+    def test_multi_dot_unknown_resource_raises_gmat_field_error(self, tmp_path: Path) -> None:
+        mission = self._mission_with(tmp_path)
+        with pytest.raises(GmatFieldError) as excinfo:
+            _ = mission["DoesNotExist.Drag.Field"]
+        assert "unknown resource 'DoesNotExist'" in str(excinfo.value)
+
+    # --- Variable.Value (#104) -----------------------------------------------
+
+    def test_variable_value_read_returns_float(self, tmp_path: Path) -> None:
+        mission = self._mission_with(tmp_path, elapsed_seconds=_variable("elapsed_seconds", 0.0))
+        assert mission["elapsed_seconds.Value"] == 0.0
+
+    def test_variable_value_write_persists_as_float(self, tmp_path: Path) -> None:
+        var = _variable("elapsed_seconds", 0.0)
+        mission = self._mission_with(tmp_path, elapsed_seconds=var)
+        mission["elapsed_seconds.Value"] = 86400.0
+        assert ("Value", 86400.0) in var.set_calls
+        assert mission["elapsed_seconds.Value"] == 86400.0
+
+    def test_variable_value_accepts_int(self, tmp_path: Path) -> None:
+        # The real-type coercion path admits ``int`` for a REAL_TYPE field.
+        mission = self._mission_with(tmp_path, elapsed_seconds=_variable())
+        mission["elapsed_seconds.Value"] = 86400  # int, not float
+        assert mission["elapsed_seconds.Value"] == 86400.0
+
+    def test_variable_value_accepts_numpy_scalar(self, tmp_path: Path) -> None:
+        # Regression guard for the numpy-strip coercion path (#85) on the
+        # Variable.Value contract specifically.
+        import numpy as np
+
+        mission = self._mission_with(tmp_path, elapsed_seconds=_variable())
+        mission["elapsed_seconds.Value"] = np.float64(7200.5)
+        assert mission["elapsed_seconds.Value"] == 7200.5
+
+    def test_variable_value_unknown_variable_raises_gmat_field_error(self, tmp_path: Path) -> None:
+        mission = self._mission_with(tmp_path)
+        with pytest.raises(GmatFieldError) as excinfo:
+            mission["nope.Value"] = 1.0
+        assert "unknown resource 'nope'" in str(excinfo.value)
+        # The error payload carries the rejected value, so a caller catching
+        # the exception can re-raise with context without re-parsing the path.
+        assert excinfo.value.value == 1.0
 
 
 # --- Mission.run --------------------------------------------------------------

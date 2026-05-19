@@ -86,7 +86,14 @@ contacts = result.contacts["ContactLocator1"]
 
 `Mission.load` discovers a local GMAT install (honouring the `GMAT_ROOT` environment variable
 or a `gmat_root=` argument), bootstraps `gmatpy`, and parses the script into the live GMAT
-object graph. Subscript access reads and writes fields against that graph with type coercion.
+object graph. Subscript access reads and writes fields against that graph with type coercion:
+
+| Pattern | Example |
+|---------|---------|
+| `Resource.Field` | `mission["Sat.SMA"] = 7000` |
+| `Resource.SubResource.Field` | `mission["FM.Drag.CSSISpaceWeatherFile"] = "/path/CSSI.txt"` |
+| `Variable.Value` | `mission["elapsed_seconds.Value"] = 86400.0` |
+
 `mission.run()` executes the mission sequence headlessly, captures GMAT's log, and returns a
 `Results` exposing three lazy mappings — `reports`, `ephemerides`, and `contacts` — each
 keyed by the GMAT resource name and parsing to a DataFrame on first access. See
