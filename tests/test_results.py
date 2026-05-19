@@ -575,8 +575,11 @@ class TestPersist:
         assert (expected / "r1.txt").exists()
 
     def test_expands_tilde_in_dest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Regression guard so the path-helper contract is pinned.
+        # Regression guard so the path-helper contract is pinned. Both HOME
+        # (POSIX) and USERPROFILE (Windows) are stubbed because Python's
+        # expanduser reads USERPROFILE on Windows, not HOME.
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         result, _ = _result_with_workspace(tmp_path)
 
         result.persist("~/persisted_home")

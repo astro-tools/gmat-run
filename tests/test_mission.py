@@ -1353,8 +1353,12 @@ class TestMissionRunWorkingDir:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # Tilde-expansion was already implicit via ``Path.expanduser``; this
-        # is a regression guard so the helper's contract is pinned.
+        # is a regression guard so the helper's contract is pinned. Both
+        # HOME (POSIX) and USERPROFILE (Windows) are stubbed so the
+        # assertion is platform-independent — Python's expanduser reads
+        # USERPROFILE on Windows.
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
         mission, _ = _run_mission(tmp_path)
 
         result = mission.run(working_dir="~/run_home")

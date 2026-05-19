@@ -86,8 +86,11 @@ def test_resolves_relative_path_against_cwd(
 
 
 def test_expands_tilde_in_destination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Regression guard for the path-helper's expanduser contract.
+    # Regression guard for the path-helper's expanduser contract. Both HOME
+    # (POSIX) and USERPROFILE (Windows) are stubbed because Python's
+    # expanduser reads USERPROFILE on Windows, not HOME.
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     df = _hand_built_oem_frame()
 
     out = write_oem(df, "~/run.oem")
