@@ -29,6 +29,7 @@ from types import MappingProxyType
 
 import pandas as pd
 
+from gmat_run._path_utils import resolve_user_path
 from gmat_run.parsers.contact import parse as _parse_contact
 from gmat_run.parsers.ephemeris import parse as _parse_oem_ephemeris
 from gmat_run.parsers.reportfile import parse as _parse_reportfile
@@ -265,12 +266,15 @@ class Results:
 
         Args:
             path: Directory to copy artefacts into. Created if missing.
+                ``~`` is expanded and relative paths are resolved against
+                the caller's CWD at submit time, so :attr:`output_dir`
+                stays absolute after the call.
 
         Returns:
             ``self``, so the call composes with ``Mission.run().persist(...)``.
         """
-        dest = Path(path).expanduser()
-        if self.output_dir.exists() and dest.resolve() == self.output_dir.resolve():
+        dest = resolve_user_path(path)
+        if self.output_dir.exists() and dest == self.output_dir.resolve():
             return self
         dest.mkdir(parents=True, exist_ok=True)
         if self.output_dir.exists() and self.output_dir.is_dir():

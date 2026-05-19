@@ -425,8 +425,26 @@ def test_load_returns_mission_handle(patched_load: ModuleType, tmp_path: Path) -
     mission = Mission.load(script)
 
     assert mission.gmat is patched_load
-    assert mission.script_path == script
+    assert mission.script_path == script.resolve()
     assert mission.install.version == "R2026a"
+
+
+def test_load_resolves_relative_script_path_against_cwd(
+    patched_load: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A bare relative script path must end up absolute on ``mission.script_path``
+    # so downstream lookups (e.g. ``attitude_input_paths``) that resolve
+    # filenames against ``script_path.parent`` see a fully-qualified parent
+    # regardless of subsequent ``chdir`` in the caller.
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    (script_dir / "flyby.script").write_text("# fake\n", encoding="utf-8")
+    monkeypatch.chdir(script_dir)
+
+    mission = Mission.load("flyby.script")
+
+    assert mission.script_path.is_absolute()
+    assert mission.script_path == (script_dir / "flyby.script").resolve()
 
 
 def test_load_raises_gmat_load_error_on_parse_failure(
@@ -1312,6 +1330,36 @@ class TestMissionRunWorkingDir:
         result = mission.run(overwrite=True)
 
         assert result.output_dir.is_dir()
+
+    def test_run_resolves_relative_working_dir_against_cwd(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A relative ``working_dir`` is anchored to the caller's CWD at submit
+        # time, not to GMAT's install-time ``OUTPUT_PATH``. Without the
+        # resolution, the path would propagate relative through
+        # ``_rewrite_output_paths`` into ``SetField("Filename", ...)`` and
+        # GMAT would land outputs under ``<gmat-install>/output/<rel>``.
+        mission, _ = _run_mission(tmp_path)
+        cwd = tmp_path / "cwd"
+        cwd.mkdir()
+        monkeypatch.chdir(cwd)
+
+        result = mission.run(working_dir="outputs/run_0")
+
+        assert result.output_dir.is_absolute()
+        assert result.output_dir == (cwd / "outputs/run_0").resolve()
+
+    def test_run_expands_tilde_in_working_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Tilde-expansion was already implicit via ``Path.expanduser``; this
+        # is a regression guard so the helper's contract is pinned.
+        monkeypatch.setenv("HOME", str(tmp_path))
+        mission, _ = _run_mission(tmp_path)
+
+        result = mission.run(working_dir="~/run_home")
+
+        assert result.output_dir == (tmp_path / "run_home").resolve()
 
 
 # --- Mission.attitude_inputs --------------------------------------------------

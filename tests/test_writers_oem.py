@@ -64,7 +64,35 @@ def test_round_trip_preserves_state_columns_and_attrs(tmp_path: Path) -> None:
 def test_returns_destination_path(tmp_path: Path) -> None:
     df = _hand_built_oem_frame()
     out = write_oem(df, tmp_path / "out.oem")
-    assert out == tmp_path / "out.oem"
+    assert out == (tmp_path / "out.oem").resolve()
+    assert out.exists()
+
+
+def test_resolves_relative_path_against_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A relative destination is anchored to the caller's CWD at submit
+    # time, not silently resolved against some other base.
+    df = _hand_built_oem_frame()
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+
+    out = write_oem(df, "outputs/run.oem")
+
+    assert out.is_absolute()
+    assert out == (cwd / "outputs/run.oem").resolve()
+    assert out.exists()
+
+
+def test_expands_tilde_in_destination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression guard for the path-helper's expanduser contract.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    df = _hand_built_oem_frame()
+
+    out = write_oem(df, "~/run.oem")
+
+    assert out == (tmp_path / "run.oem").resolve()
     assert out.exists()
 
 

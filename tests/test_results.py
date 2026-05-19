@@ -556,6 +556,33 @@ class TestPersist:
         assert (second / "r1.txt").exists()
         assert result.reports._paths["R1"] == second / "r1.txt"  # type: ignore[attr-defined]
 
+    def test_resolves_relative_dest_against_cwd(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A relative ``dest`` is anchored to the caller's CWD at submit
+        # time, not interpreted relative to the workspace or some other
+        # implicit base.
+        result, _ = _result_with_workspace(tmp_path)
+        cwd = tmp_path / "cwd"
+        cwd.mkdir()
+        monkeypatch.chdir(cwd)
+
+        result.persist("persisted/run_x")
+
+        expected = (cwd / "persisted/run_x").resolve()
+        assert result.output_dir.is_absolute()
+        assert result.output_dir == expected
+        assert (expected / "r1.txt").exists()
+
+    def test_expands_tilde_in_dest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Regression guard so the path-helper contract is pinned.
+        monkeypatch.setenv("HOME", str(tmp_path))
+        result, _ = _result_with_workspace(tmp_path)
+
+        result.persist("~/persisted_home")
+
+        assert result.output_dir == (tmp_path / "persisted_home").resolve()
+
 
 # --- write_oem / write_oem_all ----------------------------------------------
 
