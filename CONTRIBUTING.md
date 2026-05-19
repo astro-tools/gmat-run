@@ -77,5 +77,7 @@ existing issues to make sure the work belongs here and not in a future repo.
 
 ## Questions
 
-Open a [discussion](https://github.com/astro-tools/gmat-run/discussions) rather than
-an issue for open-ended questions, usage help, or brainstorming.
+Open a [discussion](https://github.com/orgs/astro-tools/discussions) rather
+than an issue for open-ended questions, usage help, or brainstorming. The
+astro-tools org runs a single shared discussions space — there is no
+per-repo discussions board.
