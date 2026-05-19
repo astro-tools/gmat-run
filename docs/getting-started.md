@@ -49,6 +49,17 @@ mission["Sat.SMA"] = 6878.0     # write through SetField
 mission["DefaultProp.InitialStepSize"] = 60
 ```
 
+The grammar covers three flavours:
+
+| Pattern | Example | When to reach for it |
+|---------|---------|----------------------|
+| `Resource.Field` | `mission["Sat.SMA"] = 7000` | Top-level field on any GMAT Resource |
+| `Resource.SubResource.Field` | `mission["FM.Drag.CSSISpaceWeatherFile"] = "/path/CSSI.txt"` | A field on a sub-resource the parent Resource owns (force-model drag, hardware sub-fields, etc.) |
+| `Variable.Value` | `mission["elapsed_seconds.Value"] = 86400.0` | The numeric value of a script-level `Create Variable` block |
+
+GMAT routes the dotted tail through to the right sub-object internally, so the grammar is
+one consistent shape across all three cases.
+
 [`mission.run()`][gmat_run.Mission.run] executes the mission sequence headlessly
 and returns a [`Results`][gmat_run.Results] object keyed by the resource names
 declared in the script. Parsing is lazy — a DataFrame is materialised on first

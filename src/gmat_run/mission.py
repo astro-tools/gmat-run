@@ -4,11 +4,19 @@ The single public entry point is :class:`Mission`. :meth:`Mission.load`
 discovers a local GMAT install, bootstraps ``gmatpy``, parses a
 ``.script`` into the live GMAT object graph, and returns a handle.
 
-Field access uses dotted-path keys against that graph: ``mission["Sat.SMA"]``
-returns a typed Python value, ``mission["Sat.SMA"] = 7000`` writes one back
-through ``SetField``. The path format is exactly ``Resource.Field`` — one dot,
-two non-empty segments. Owned-object pass-through (``Sat.Tanks.MainTank.…``)
-is deferred.
+Field access uses dotted-path keys against that graph. The grammar covers
+three flavours:
+
+- ``mission["Sat.SMA"]`` — top-level ``Resource.Field``.
+- ``mission["FM.Drag.CSSISpaceWeatherFile"]`` — sub-resource fields via
+  ``Resource.SubResource.Field`` (N≥2 dots after the resource name).
+- ``mission["my_var.Value"]`` — script-level ``Create Variable`` blocks,
+  addressed via the ``Variable.Value`` suffix.
+
+Reads return typed Python values; writes coerce through the same type
+gates and round-trip with reads (``mission[path] = v; assert mission[path] == v``).
+Everything after the first dot is passed verbatim to GMAT, which routes
+sub-resource paths internally — no Python-side object-graph walk.
 
 :meth:`Mission.run` executes the loaded mission sequence headlessly, captures
 GMAT's log into the returned :class:`~gmat_run.results.Results`, and surfaces
@@ -264,6 +272,18 @@ class Mission:
         return self.summary()._repr_html_()
 
     def __getitem__(self, dotted: str) -> Any:
+        """Return the value of the GMAT field at ``dotted``.
+
+        ``dotted`` is one of ``"Resource.Field"``,
+        ``"Resource.SubResource.Field"`` (e.g. ``"FM.Drag.CSSISpaceWeatherFile"``),
+        or ``"<variable>.Value"`` for script-level ``Create Variable`` blocks.
+        Everything after the first dot is passed to GMAT as a field name;
+        GMAT routes sub-resource access internally.
+
+        Raises:
+            GmatFieldError: ``Resource`` does not exist in the loaded script,
+                or the (sub-)field name is unknown on the resolved object.
+        """
         resource, field = _split_path(dotted)
         obj = self._resolve_resource(resource, dotted, value=None)
         pid = self._resolve_field(obj, field, dotted, value=None)
@@ -271,6 +291,23 @@ class Mission:
         return self._read(obj, pid, field, type_code)
 
     def __setitem__(self, dotted: str, value: Any) -> None:
+        """Write ``value`` to the GMAT field at ``dotted``.
+
+        Grammar matches :meth:`__getitem__`. The value is type-coerced
+        against GMAT's parameter type — ``int`` / ``float`` /
+        ``numpy.floating`` / ``numpy.integer`` are interchangeable for
+        real-typed fields, ``bool`` is required for boolean fields, etc.
+
+        ``Variable.Value`` writes the numeric value of a script-level
+        ``Create Variable`` block; ``Resource.SubResource.Field`` writes
+        through to a sub-resource (e.g.
+        ``mission["FM.Drag.CSSISpaceWeatherFile"] = "/abs/path"``).
+
+        Raises:
+            GmatFieldError: ``Resource`` does not exist; the (sub-)field
+                name is unknown; the value type does not match the field's
+                expected type; or the engine rejected the write.
+        """
         resource, field = _split_path(dotted, value=value)
         obj = self._resolve_resource(resource, dotted, value=value)
         pid = self._resolve_field(obj, field, dotted, value=value)
@@ -733,9 +770,16 @@ def _strip_numpy(value: Any) -> Any:
 
 
 def _split_path(dotted: str, *, value: Any = None) -> tuple[str, str]:
-    if not isinstance(dotted, str) or dotted.count(".") != 1:
+    # Grammar: ``Resource.Field`` (single-dot), ``Resource.SubResource.Field``
+    # (multi-dot, e.g. ``FM.Drag.CSSISpaceWeatherFile``), and the special-case
+    # ``Variable.Value`` for script-level ``Create Variable`` blocks.
+    # Everything after the first dot is passed verbatim to GMAT, which routes
+    # dotted sub-resource paths internally via ``GetParameterID`` / ``GetField``
+    # / ``SetField`` on the top-level Resource — no Python-side walk needed.
+    if not isinstance(dotted, str) or "." not in dotted:
         raise GmatFieldError(
-            f"invalid dotted path '{dotted}'; expected exactly one dot ('Resource.Field')",
+            f"invalid dotted path '{dotted}'; expected at least one dot "
+            "('Resource.Field' or 'Resource.SubResource.Field')",
             str(dotted),
             value,
         )
