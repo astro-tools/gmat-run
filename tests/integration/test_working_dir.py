@@ -100,3 +100,29 @@ def test_collision_gate_requires_overwrite_for_explicit_working_dir(
     # file is freshly written, not appended. The size sanity check would
     # surface an "old + new" concatenation regression instantly.
     assert third.reports["RF"].equals(first.reports["RF"])
+
+
+def test_relative_working_dir_resolves_against_caller_cwd(
+    gmat_available: None,
+    minimal_script: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A relative ``working_dir`` lands under the caller's CWD at submit
+    # time, not under GMAT's install-time ``OUTPUT_PATH``. Without the
+    # boundary-normalisation, the rewritten Filename handed to
+    # ``SetField`` would be relative and GMAT would write under
+    # ``<install>/output/relative_outputs/`` — silent footgun.
+    cwd = tmp_path / "caller_cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+
+    result = Mission.load(minimal_script).run(working_dir="relative_outputs")
+
+    expected = (cwd / "relative_outputs").resolve()
+    assert result.output_dir == expected
+    assert (expected / "leo_state.txt").is_file()
+    # The captured report's source path must also live under the resolved
+    # workspace — proves the rewrite handed GMAT an absolute path, not
+    # one anchored at GMAT's install-time OUTPUT_PATH.
+    assert result.reports._paths["RF"] == expected / "leo_state.txt"  # type: ignore[attr-defined]

@@ -25,6 +25,8 @@ from typing import Any, Final
 
 import pandas as pd
 
+from gmat_run._path_utils import resolve_user_path
+
 __all__ = ["write_oem"]
 
 # CCSDS 502.0-B-2 §A.5 reference frames the writer accepts as canonical.
@@ -83,7 +85,10 @@ def write_oem(
             attrs the parser surfaces (``coordinate_system``,
             ``central_body``, ``time_scale`` / ``epoch_scales``, optionally
             ``object_name``, ``interpolation``, ``interpolation_degree``).
-        path: Destination ``.oem`` file. Parent directories are created.
+        path: Destination ``.oem`` file. ``~`` is expanded and relative
+            paths are resolved against the caller's CWD at submit time;
+            the returned :class:`~pathlib.Path` is always absolute. Parent
+            directories are created.
         originator: Value for the ``ORIGINATOR`` header field. Defaults to
             ``"gmat-run"`` (the file header from the source ephemeris is
             *not* preserved — the new file is a new artefact).
@@ -203,7 +208,7 @@ def write_oem(
     # emit).
     oem.version = "2.0"
 
-    dest = Path(path)
+    dest = resolve_user_path(path)
     dest.parent.mkdir(parents=True, exist_ok=True)
     NdmKvnIo().to_file(oem, dest)
     _rewrite_oem_version_line(dest)

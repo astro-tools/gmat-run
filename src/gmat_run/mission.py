@@ -33,6 +33,7 @@ from typing import Any, Final
 import numpy as np
 import pandas as pd
 
+from gmat_run._path_utils import resolve_user_path
 from gmat_run.errors import GmatFieldError, GmatLoadError, GmatRunError
 from gmat_run.install import GmatInstall, locate_gmat
 from gmat_run.parsers.aem_ephemeris import parse as _parse_aem_ephemeris
@@ -154,13 +155,17 @@ class Mission:
         :func:`~gmat_run.runtime.bootstrap`, and parses the script via
         ``gmat.LoadScript``.
 
+        ``path`` is resolved against the caller's CWD at submit time
+        (``~`` is expanded, relative paths become absolute). The resolved
+        value is exposed via :attr:`script_path`.
+
         Raises:
             GmatNotFoundError: No usable GMAT install was found.
             GmatLoadError: gmatpy could not be loaded, or
                 ``LoadScript`` returned ``False`` (parse error — check the
                 GMAT log file).
         """
-        script_path = Path(path).expanduser()
+        script_path = resolve_user_path(path)
         install = locate_gmat(gmat_root)
         gmat = bootstrap(install)
         if not gmat.LoadScript(str(script_path)):
@@ -332,11 +337,15 @@ class Mission:
           notice prepended to :attr:`Results.log`.
 
         Args:
-            working_dir: Directory GMAT writes its outputs into. ``None``
-                creates a fresh :class:`tempfile.TemporaryDirectory` whose
-                lifetime is tied to the returned :class:`Results` — the
-                directory survives until the caller drops the result, so lazy
-                report parsing keeps working without a context manager. Call
+            working_dir: Directory GMAT writes its outputs into. ``~`` is
+                expanded and relative paths are resolved against the
+                caller's CWD at submit time, so the stored
+                :attr:`Results.output_dir` is always absolute regardless of
+                what the caller passed in. ``None`` creates a fresh
+                :class:`tempfile.TemporaryDirectory` whose lifetime is tied
+                to the returned :class:`Results` — the directory survives
+                until the caller drops the result, so lazy report parsing
+                keeps working without a context manager. Call
                 :meth:`Results.persist` before that to copy the artefacts to a
                 permanent location.
             overwrite: When ``True``, unlink any pre-existing files in
@@ -812,7 +821,7 @@ def _prepare_workspace(
     if working_dir is None:
         tempdir = tempfile.TemporaryDirectory(prefix="gmat-run-")
         return Path(tempdir.name), tempdir
-    path = Path(working_dir).expanduser()
+    path = resolve_user_path(working_dir)
     try:
         path.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
