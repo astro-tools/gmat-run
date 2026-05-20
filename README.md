@@ -19,7 +19,8 @@ gmat-run loads it, lets you override fields from Python, runs the mission headle
 - **Not** a way to build GMAT missions from scratch in Python — see
   [`gmatpyplus`](https://github.com/weasdown/gmatpyplus) for that.
 - **Not** a `.script` text generator — see [`pygmat`](https://pypi.org/project/pygmat/).
-- **Not** a parallel sweep runner — that's a future astro-tools project (`gmat-sweep`) built on top.
+- **Not** a parallel sweep runner — see [`gmat-sweep`](https://github.com/astro-tools/gmat-sweep),
+  an astro-tools project built on top.
 
 ## Requirements
 
@@ -33,8 +34,6 @@ gmat-run loads it, lets you override fields from Python, runs the mission headle
 |---|---|---|
 | R2026a | Primary development target | Exercised on every PR (Ubuntu + Windows + macOS, Python 3.10/3.11/3.12) |
 | R2025a | Supported | Exercised on every PR (Ubuntu + Windows + macOS, Python 3.10/3.11/3.12) |
-| R2024a | Expected to work | Not exercised in CI |
-| R2023a | Expected to work | Not exercised in CI |
 | R2022a | Expected to work | Not exercised in CI (Python 3.9 ABI floor; see [known limitations](https://astro-tools.github.io/gmat-run/known-limitations/)) |
 
 Report any version-specific breakage as an issue and we'll add a CI cell for it.
@@ -114,7 +113,7 @@ and sample output.
 
 ## Outputs
 
-`Results` exposes three mappings, each keyed by the GMAT resource name as declared in the
+`Results` exposes four mappings, each keyed by the GMAT resource name as declared in the
 `.script`:
 
 - **`ReportFile`** → DataFrame, with `UTCGregorian` and `*ModJulian` epoch columns promoted
@@ -131,6 +130,10 @@ and sample output.
   variable, the goal/constraint residuals, and a `status` column; `df.attrs["converged"]`
   and the `Results.converged` shortcut answer the yes/no. `DifferentialCorrector` and
   `Yukon` are covered.
+
+Each mapping has a sibling path accessor — `report_paths`, `ephemeris_paths`,
+`contact_paths`, and `solver_paths` — mapping each resource name to the file GMAT wrote,
+so you can locate an output without parsing it.
 
 ## Documentation
 
@@ -150,8 +153,8 @@ Runnable example notebooks:
   vary `Sat.SMA` across a range, run the same script for each, and overlay the resulting
   orbits.
 - [Ground track](https://astro-tools.github.io/gmat-run/examples/03_ground_track/) — read an
-  `EphemerisFile` from `Results.ephemerides` and plot the spacecraft's ground track on a
-  Cartopy world map.
+  `EphemerisFile` from `Results.ephemerides` and plot the spacecraft's ground track on an
+  equirectangular world map.
 - [Export to CCSDS-OEM](https://astro-tools.github.io/gmat-run/examples/04_export_oem/) —
   run a stock GMAT sample that emits an STK ephemeris, convert it to a CCSDS-OEM file
   with `Results.write_oem`, re-parse the result, and visualise the trajectory in 3D.

@@ -204,7 +204,7 @@ class MissionSummary:
                 names = ", ".join(group.names)
                 lines.append(f"  {group.category}: {names}")
         lines.append("")
-        lines.append(f"Mission sequence ({self.command_count} commands)")
+        lines.append(f"Mission sequence ({_count(self.command_count, 'command')})")
         if not self.commands:
             lines.append("  (empty)")
         else:
@@ -213,7 +213,7 @@ class MissionSummary:
                 for sub in cmd.children:
                     lines.append(f"      - {_format_command_line(sub)}")
                 if cmd.nested_count:
-                    lines.append(f"      ({cmd.nested_count} nested commands)")
+                    lines.append(f"      ({_count(cmd.nested_count, 'nested command')})")
         return "\n".join(lines)
 
     def _repr_html_(self) -> str:
@@ -594,7 +594,7 @@ def _format_mission_html(summary: MissionSummary) -> str:
             )
         parts.append("</tbody></table>")
 
-    parts.append(f"<strong>Mission sequence</strong> ({summary.command_count} commands)")
+    parts.append(f"<strong>Mission sequence</strong> ({_count(summary.command_count, 'command')})")
     if summary.commands:
         parts.append("<ol>")
         for cmd in summary.commands:
@@ -605,7 +605,7 @@ def _format_mission_html(summary: MissionSummary) -> str:
                     parts.append("<li>" + _format_command_html(sub) + "</li>")
                 parts.append("</ul>")
             if cmd.nested_count:
-                parts.append(f"<div><em>({cmd.nested_count} nested commands)</em></div>")
+                parts.append(f"<div><em>({_count(cmd.nested_count, 'nested command')})</em></div>")
             parts.append("</li>")
         parts.append("</ol>")
     else:
@@ -626,3 +626,8 @@ def _format_command_line(cmd: CommandOutline) -> str:
     if cmd.summary:
         return f"{cmd.type_name} — {cmd.summary}"
     return cmd.type_name
+
+
+def _count(n: int, noun: str) -> str:
+    """Render a count with a naively pluralised noun — ``1 command`` / ``2 commands``."""
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"

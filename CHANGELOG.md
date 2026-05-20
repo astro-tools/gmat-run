@@ -5,6 +5,75 @@ All notable changes to gmat-run are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-05-20
+
+### Added
+
+- Solver/targeter introspection — [`Results.solver_runs`][gmat_run.Results]
+  exposes a lazy mapping keyed by `Solver` resource name, one
+  `pandas.DataFrame` per `Target` / `Optimize` run. Each frame carries one row
+  per iteration with a column for every `Vary` variable, the goal/constraint
+  residuals, and a terminal `status`; [`Results.converged`][gmat_run.Results]
+  is the derived `{solver: bool}` shortcut. A new pure parser,
+  `gmat_run.parsers.solver_log`, reads the per-`Solver` `.data` file for
+  `DifferentialCorrector` and `Yukon` with no `gmatpy` import (#106, #112).
+- Extended `mission[...]` override grammar — multi-dot sub-resource paths
+  (`mission["FM.Drag.CSSISpaceWeatherFile"] = ...`) and script `Variable`
+  values (`mission["elapsed_seconds.Value"] = ...`), alongside the existing
+  `Resource.Field` form (#103, #104, #111).
+- `Results.report_paths` — a read-only mapping of `ReportFile` resource name
+  to its output path, completing the parser-free path accessors next to
+  `ephemeris_paths`, `contact_paths`, and `solver_paths` (#117, #125).
+- Example notebook *Target a Hohmann transfer and inspect solver iterations*
+  — runs a two-burn transfer and reads the `DifferentialCorrector` history
+  back through `Results.solver_runs`, including a `MaximumIterations`-capped
+  run that ends non-converged without raising (#107, #113).
+
+### Changed
+
+- Every public path-shaped argument — [`Mission.load`][gmat_run.Mission.load],
+  the `working_dir` of [`Mission.run`][gmat_run.Mission.run],
+  [`Results.persist`][gmat_run.Results.persist], and `Results.write_oem` /
+  `write_oem_all` — now expands `~` and resolves a relative path against the
+  caller's working directory when the call is made. Stored path attributes
+  (`Mission.script_path`, `Results.output_dir`) are always absolute. Callers
+  already passing absolute paths are unaffected (#105, #110, #120).
+
+### Fixed
+
+- [`Mission.summary`][gmat_run.Mission.summary] (and the `Mission` / `Results`
+  notebook reprs) crashed the interpreter on any mission containing a branch
+  command — `Target`, `If`, `For`, and the like — and listed
+  `BeginMissionSequence` as a spurious first command. The command-tree walk
+  now stops at each `BranchEnd`, enumerates branches explicitly, and consumes
+  GMAT's full `NoOp -> BeginMissionSequence` sentinel prefix (#114, #116, #123).
+- Running the same `Mission` twice wrote the second run's output into the
+  first run's directory: the output-path rewrite leaked onto the engine object
+  between runs. [`Mission.run`][gmat_run.Mission.run] now restores every
+  rewritten field after the run (including after a failure), so each run
+  resolves its outputs afresh and a `Mission` stays a view of the loaded
+  script — reading a subscriber's `Filename` back yields the value declared in
+  the script, not the resolved workspace path (#115, #124).
+- Relative subscriber and solver output paths were flattened to a bare
+  filename, so two outputs declared with distinct relative paths that shared a
+  basename collided onto one file. Resolution now preserves the subdirectory
+  structure under the run workspace (nested parents are pre-created), rejects a
+  relative `Filename` containing a `..` component, and raises when two outputs
+  of one run resolve to the same path (#119, #127).
+- `promote_epochs` re-tagged an already-converted epoch column with the scale
+  derived from its name, so a promote → convert → promote sequence could
+  silently mislabel the time scale. A scale recorded by an earlier pass or by
+  `convert_column` is now preserved (#118, #126).
+- [`bootstrap`][gmat_run.bootstrap] rejected a second load of the same GMAT
+  install when it was reached through a different discovery route or a
+  symlink; the install root is now canonicalised before the comparison.
+  Separately, the [`Results.persist`][gmat_run.Results.persist] docstring no
+  longer claims the method can "move" artefacts — it only ever copies
+  (#121, #122, #128).
+- `CONTRIBUTING.md` linked to a per-repo Discussions board that does not
+  exist; it now points at the org-wide `astro-tools` Discussions space
+  (#102, #109).
+
 ## [0.4.0] — 2026-05-03
 
 ### Added
@@ -138,6 +207,7 @@ Initial public release.
 - Release workflow: build, PyPI trusted publishing, and
   `gh release create --generate-notes` on `v*` tags (#31).
 
+[0.5.0]: https://github.com/astro-tools/gmat-run/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/astro-tools/gmat-run/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/astro-tools/gmat-run/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/astro-tools/gmat-run/compare/v0.1.1...v0.2.0
