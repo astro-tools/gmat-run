@@ -14,6 +14,7 @@ import pytest
 
 from gmat_run.errors import GmatOutputParseError
 from gmat_run.parsers.epoch import promote_epochs
+from gmat_run.time import convert_column
 
 # Scale suffixes the parser recognises. Parametrising over these catches any
 # table-entry-missing or typo regression in one place.
@@ -205,6 +206,39 @@ def test_promote_is_idempotent() -> None:
     promote_epochs(df)
     pd.testing.assert_frame_equal(df, snapshot)
     assert df.attrs["epoch_scales"] == attrs_snapshot
+
+
+def test_promote_does_not_clobber_a_converted_scale() -> None:
+    """Re-promoting after convert_column must not re-tag the original scale.
+
+    The column keeps its ``TAIModJulian`` suffix after the conversion, so the
+    idempotence branch must not re-derive ``"TAI"`` from the name and overwrite
+    the ``"UTC"`` that convert_column recorded.
+    """
+    df = pd.DataFrame({"Sat.TAIModJulian": [30000.0, 30001.0]})
+    promote_epochs(df)
+    convert_column(df, "Sat.TAIModJulian", "UTC")
+    converted = df["Sat.TAIModJulian"].copy(deep=True)
+
+    promote_epochs(df)
+
+    assert df.attrs["epoch_scales"]["Sat.TAIModJulian"] == "UTC"
+    # The re-promote leaves the already-converted data untouched too.
+    pd.testing.assert_series_equal(df["Sat.TAIModJulian"], converted)
+
+
+def test_promote_tags_hand_built_datetime64_frame() -> None:
+    """A datetime64 column with no recorded scale still gets a name-derived tag.
+
+    This is the case the idempotence branch exists to serve: promote_epochs
+    never ran on the frame, so there is no recorded scale to clobber.
+    """
+    df = pd.DataFrame({"Sat.TAIModJulian": pd.to_datetime(["2000-01-01 12:00:00"])})
+    assert "epoch_scales" not in df.attrs
+
+    promote_epochs(df)
+
+    assert df.attrs["epoch_scales"] == {"Sat.TAIModJulian": "TAI"}
 
 
 def test_returns_same_frame_for_chaining() -> None:
