@@ -296,6 +296,27 @@ def test_validate_install_rejects_file(tmp_path: Path) -> None:
     assert excinfo.value.attempts[0][2] == "not a directory"
 
 
+# --- path canonicalisation ----------------------------------------------------
+
+
+def test_validate_install_canonicalises_root(tmp_path: Path) -> None:
+    """Regression for issue #122: the same physical install reached via two
+    different path spellings yields equal GmatInstall objects, so bootstrap()'s
+    "second install" guard does not misfire."""
+    root = _make_install(tmp_path / "gmat-R2026a")
+    # A non-normalised spelling of the very same directory.
+    detour = tmp_path / "gmat-R2026a" / ".." / "gmat-R2026a"
+
+    canonical = locate_gmat(gmat_root=root)
+    via_detour = locate_gmat(gmat_root=detour)
+
+    assert via_detour == canonical
+    assert via_detour.root == root.resolve()
+    assert via_detour.bin_dir == (root / "bin").resolve()
+    assert via_detour.api_dir == (root / "api").resolve()
+    assert via_detour.output_dir == (root / "output").resolve()
+
+
 # --- error reporting ----------------------------------------------------------
 
 

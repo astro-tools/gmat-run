@@ -778,6 +778,24 @@ def test_write_oem_all_with_no_ephemerides_creates_empty_dir(tmp_path: Path) -> 
     assert list(dest.iterdir()) == []
 
 
+def test_write_oem_all_returns_resolved_expanded_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression for issue #120: the return value must honour the docstring's
+    # "resolved Path" contract, matching write_oem and resolve_user_path. Both
+    # HOME (POSIX) and USERPROFILE (Windows) are stubbed because Python's
+    # expanduser reads USERPROFILE on Windows, not HOME.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    result = Results(output_dir=tmp_path, log="")
+
+    dest = result.write_oem_all("~/oem_out")
+
+    assert dest == (tmp_path / "oem_out").resolve()
+    assert dest.is_absolute()
+    assert dest.is_dir()
+
+
 # --- __repr__ / _repr_html_ --------------------------------------------------
 
 
