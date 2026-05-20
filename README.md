@@ -159,6 +159,10 @@ Runnable example notebooks:
   propagate across the 2017-01-01 leap-second boundary and convert the resulting
   ReportFile's epoch columns between A1, TAI, UTC, TT, and TDB with `gmat_run.time`
   and the parser-level `convert_to=` keyword.
+- [Solver iterations](https://astro-tools.github.io/gmat-run/examples/06_solver_iterations/) —
+  target a Hohmann transfer with a `DifferentialCorrector` and read the iteration
+  history back from `Results.solver_runs`: the `Vary` variables, the `Achieve` goal
+  residuals, and a convergence flag.
 
 ## Development
 

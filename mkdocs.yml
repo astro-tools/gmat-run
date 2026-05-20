@@ -47,6 +47,7 @@ nav:
       - Ground track: examples/03_ground_track.ipynb
       - Export to CCSDS-OEM: examples/04_export_oem.ipynb
       - Time-scale conversion: examples/05_time_scales.ipynb
+      - Solver iterations: examples/06_solver_iterations.ipynb
   - API reference:
       - reference/index.md
       - Mission: reference/mission.md

@@ -32,5 +32,7 @@ result.reports["ReportFile1"].plot(x="UTCGregorian", y="Sat.Earth.Altitude")
 - [Install GMAT](install-gmat.md) — get the GMAT engine on your machine.
 - [Run gmat-run in your CI](ci-with-setup-gmat.md) — wire `astro-tools/setup-gmat`
   into a GitHub Actions workflow.
+- [Example notebooks](examples/index.md) — end-to-end Jupyter notebooks that
+  exercise the API on stock GMAT missions.
 - [API reference](reference/index.md) — the public Python API.
 - [Known limitations](known-limitations.md) — gmatpy single-init constraint and other gotchas.
