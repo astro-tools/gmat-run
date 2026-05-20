@@ -109,11 +109,14 @@ def promote_epochs(df: pd.DataFrame, *, convert_to: str | None = None) -> pd.Dat
     for column in df.columns:
         suffix = _suffix(str(column))
         if pd.api.types.is_datetime64_any_dtype(df[column]):
-            # Already promoted (idempotence) — but still tag the scale if we
-            # can, so a caller that constructed the frame by hand gets
-            # consistent attrs.
+            # Already promoted (idempotence). Tag the name-derived scale only
+            # when nothing recorded one yet — a caller that built the frame by
+            # hand still gets consistent attrs — but never overwrite a scale an
+            # earlier pass or convert_column already recorded: the column name
+            # keeps its original suffix after a conversion, so re-deriving from
+            # it would silently mislabel converted data.
             scale = _GREGORIAN_SUFFIXES.get(suffix) or _MODJULIAN_SUFFIXES.get(suffix)
-            if scale is not None:
+            if scale is not None and column not in df.attrs.get("epoch_scales", {}):
                 _tag_scale(df, column, scale)
             continue
         if suffix in _GREGORIAN_SUFFIXES:
