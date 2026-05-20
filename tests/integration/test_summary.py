@@ -6,6 +6,11 @@ resources, and command sequence as gmatpy reports them. Also locks in the
 contract that both :class:`Mission` and :class:`Results` have non-default
 ``__repr__`` and ``_repr_html_`` methods — the issue's acceptance criterion
 that the address-style repr is gone.
+
+The ``Ex_GEOTransfer`` fixture additionally exercises a mission built from
+``Target`` blocks: GMAT loops each ``EndTarget`` back to its owning ``Target``,
+which used to send ``summary()`` into unbounded recursion and a SIGSEGV
+(issue #114). These tests are the regression guard for that crash.
 """
 
 from __future__ import annotations
@@ -19,11 +24,18 @@ from gmat_run import Mission
 pytestmark = pytest.mark.integration
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "Ex_LEOEphemeris.script"
+_GEO_FIXTURE = Path(__file__).parent / "fixtures" / "Ex_GEOTransfer.script"
 
 
 @pytest.fixture(scope="module")
 def loaded_mission(gmat_available: None) -> Mission:
     return Mission.load(_FIXTURE)
+
+
+@pytest.fixture(scope="module")
+def geo_mission(gmat_available: None) -> Mission:
+    """A mission whose sequence contains three ``Target`` branch blocks."""
+    return Mission.load(_GEO_FIXTURE)
 
 
 def test_summary_lists_named_resources(loaded_mission: Mission) -> None:
@@ -87,3 +99,57 @@ def test_results_repr_and_repr_html_are_not_default(loaded_mission: Mission) -> 
         # module-scoped Mission fixture goes out of scope (Windows file
         # handles get cranky otherwise).
         del result
+
+
+# --- branch-bearing mission (issue #114 regression) --------------------------
+
+
+def test_summary_returns_on_branch_mission(geo_mission: Mission) -> None:
+    # The core regression: summary() used to recurse through each Target's
+    # EndTarget loopback and crash the process with SIGSEGV. Reaching this
+    # assertion at all means the walk terminated.
+    summary = geo_mission.summary()
+    assert summary.script_name == "Ex_GEOTransfer.script"
+    assert summary.command_count >= 1
+
+
+def test_summary_outlines_top_level_branch_sequence(geo_mission: Mission) -> None:
+    summary = geo_mission.summary()
+    types = [c.type_name for c in summary.commands]
+    # NoOp / BeginMissionSequence sentinels are dropped; three Target blocks
+    # sit between the Propagate commands of the transfer.
+    assert types == [
+        "Propagate",
+        "Target",
+        "Propagate",
+        "Propagate",
+        "Target",
+        "Target",
+        "Propagate",
+    ]
+
+
+def test_target_block_children_are_summarised_one_level_deep(
+    geo_mission: Mission,
+) -> None:
+    summary = geo_mission.summary()
+    targets = [c for c in summary.commands if c.type_name == "Target"]
+    assert len(targets) == 3
+    # The 'Raise Apogee' Target body, with the EndTarget marker excluded.
+    assert [c.type_name for c in targets[0].children] == [
+        "Vary",
+        "Maneuver",
+        "Propagate",
+        "Achieve",
+    ]
+    # The targeter bodies are flat — no commands nested below depth one.
+    assert all(t.nested_count == 0 for t in targets)
+
+
+def test_branch_mission_repr_and_repr_html_render(geo_mission: Mission) -> None:
+    text = repr(geo_mission)
+    assert text.startswith("Mission(")
+    assert "<gmat_run.mission.Mission object" not in text
+    html_str = geo_mission._repr_html_()
+    assert "<table" in html_str
+    assert "Target" in html_str
