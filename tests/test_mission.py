@@ -161,17 +161,19 @@ class _FakeObject:
 # ``Moderator.GetListOfObjects`` uses as bucket IDs. The real gmat module
 # defines these as opaque ints from the C++ engine; the production code reads
 # them via ``getattr(self._gmat, "SUBSCRIBER", None)`` so any unique values work.
-_OBJECT_TYPE_IDS = {"SUBSCRIBER": 100, "EVENT_LOCATOR": 200, "SPACECRAFT": 300}
+_OBJECT_TYPE_IDS = {"SUBSCRIBER": 100, "EVENT_LOCATOR": 200, "SPACECRAFT": 300, "SOLVER": 400}
 
 # Which object-type bucket each top-level type lives in. ReportFile and
 # EphemerisFile are Subscribers; ContactLocator is an EventLocator; Spacecraft
 # resources land in the dedicated SPACECRAFT bucket that
-# Mission.attitude_inputs probes.
+# Mission.attitude_inputs probes; DifferentialCorrector is a Solver, walked by
+# Mission._discover_solver_outputs.
 _OBJECT_TYPE_OF_CLASS = {
     "ReportFile": "SUBSCRIBER",
     "EphemerisFile": "SUBSCRIBER",
     "ContactLocator": "EVENT_LOCATOR",
     "Spacecraft": "SPACECRAFT",
+    "DifferentialCorrector": "SOLVER",
 }
 
 
@@ -381,6 +383,17 @@ def _contact_locator(name: str = "Contacts", filename: str = "contacts.txt") -> 
         "Filename": (_TYPE_CODES["FILENAME_TYPE"], filename, False),
     }
     return _FakeObject("ContactLocator", name, fields)
+
+
+def _diff_corrector(
+    name: str = "DC", report_file: str = "DifferentialCorrectorDC.data"
+) -> _FakeObject:
+    """DifferentialCorrector Solver — exercises Mission._discover_solver_outputs."""
+    fields: dict[str, tuple[int, Any, bool]] = {
+        "ReportFile": (_TYPE_CODES["FILENAME_TYPE"], report_file, False),
+        "MaximumIterations": (_TYPE_CODES["INTEGER_TYPE"], 25, False),
+    }
+    return _FakeObject("DifferentialCorrector", name, fields)
 
 
 def _force_model(name: str = "FM") -> _FakeObject:
@@ -1472,16 +1485,17 @@ class TestMissionRunWorkingDir:
 
     def test_forward_slash_relative_filename_resolves_under_workspace(self, tmp_path: Path) -> None:
         # Regression for Windows-authored scripts that use forward slashes in
-        # a relative ``Filename``. ``Path.name`` strips any leading directory
-        # portion regardless of the platform, so the resolved path lives
-        # directly under the workspace on every OS.
+        # a relative ``Filename``. The subdirectory structure is preserved
+        # under the workspace (issue #119), and ``Path`` parses a forward
+        # slash as a separator on every OS, so the resolved path is the same
+        # nested location anywhere.
         rf = _report_file("R1", "outputs/r1.txt")
         mission, _ = _run_mission(tmp_path, objects={"R1": rf})
 
         result = mission.run()
 
         assert result.reports._paths == {  # type: ignore[attr-defined]
-            "R1": result.output_dir / "r1.txt"
+            "R1": result.output_dir / "outputs" / "r1.txt"
         }
 
     def test_overwrite_is_a_noop_for_default_workspace(self, tmp_path: Path) -> None:
@@ -1527,6 +1541,167 @@ class TestMissionRunWorkingDir:
         result = mission.run(working_dir="~/run_home")
 
         assert result.output_dir == (tmp_path / "run_home").resolve()
+
+
+class TestMissionRunRelativeOutputPaths:
+    """Relative output paths keep their subdirectory structure (issue #119)."""
+
+    def test_nested_paths_with_shared_basename_stay_distinct(self, tmp_path: Path) -> None:
+        # The issue #119 repro: two subscribers declared with distinct
+        # relative paths that share a basename must not collapse onto one
+        # file. Preserving the subdirectory structure keeps them distinct.
+        mission, _ = _run_mission(
+            tmp_path,
+            objects={
+                "R_A": _report_file("R_A", "runs/a/out.txt"),
+                "R_B": _report_file("R_B", "runs/b/out.txt"),
+            },
+        )
+
+        result = mission.run()
+
+        assert result.report_paths["R_A"] == result.output_dir / "runs" / "a" / "out.txt"
+        assert result.report_paths["R_B"] == result.output_dir / "runs" / "b" / "out.txt"
+        assert result.report_paths["R_A"] != result.report_paths["R_B"]
+
+    def test_relative_subdirectory_structure_is_preserved(self, tmp_path: Path) -> None:
+        # A single relative Filename with subdirectories resolves to a nested
+        # path under the workspace — not flattened to the basename — and that
+        # nested path is what gets written back to the engine.
+        rf = _report_file("RF", "reports/run_0/r1.txt")
+        mission, _ = _run_mission(tmp_path, objects={"RF": rf})
+
+        result = mission.run()
+
+        nested = result.output_dir / "reports" / "run_0" / "r1.txt"
+        assert result.report_paths["RF"] == nested
+        assert ("Filename", str(nested)) in rf.set_calls
+
+    def test_parent_directories_created_for_nested_output(self, tmp_path: Path) -> None:
+        # GMAT does not create output directories itself, so gmat-run
+        # pre-creates the parents of every nested inside-workspace path.
+        rf = _report_file("RF", "runs/a/out.txt")
+        mission, _ = _run_mission(tmp_path, objects={"RF": rf})
+
+        result = mission.run()
+
+        assert (result.output_dir / "runs" / "a").is_dir()
+
+    @pytest.mark.parametrize(
+        "declared",
+        ["../escape.txt", "../../escape.txt", "sub/../../escape.txt"],
+    )
+    def test_relative_filename_that_escapes_workspace_raises(
+        self, tmp_path: Path, declared: str
+    ) -> None:
+        # A relative Filename with a `..` component could resolve outside the
+        # workspace; gmat-run refuses it rather than write beyond the
+        # workspace it manages.
+        rf = _report_file("RF", declared)
+        mission, _ = _run_mission(tmp_path, objects={"RF": rf})
+
+        with pytest.raises(GmatRunError) as excinfo:
+            mission.run()
+
+        msg = str(excinfo.value)
+        assert "RF" in msg
+        assert ".." in msg
+        assert "escape working_dir" in msg
+
+    def test_internal_parent_component_is_also_rejected(self, tmp_path: Path) -> None:
+        # The guard rejects any `..` component, even one that would normalise
+        # back inside the workspace — `..` in an output Filename is almost
+        # always a script mistake, and rejecting it outright is unambiguous.
+        rf = _report_file("RF", "sub/../r1.txt")
+        mission, _ = _run_mission(tmp_path, objects={"RF": rf})
+
+        with pytest.raises(GmatRunError, match="escape working_dir"):
+            mission.run()
+
+    def test_escape_raises_before_runscript_without_mutating_fields(self, tmp_path: Path) -> None:
+        # The escape check runs in phase one of _rewrite_output_paths, before
+        # any SetField and before RunScript — so a refused run leaves the
+        # engine field and the workspace untouched.
+        rf = _report_file("RF", "../escape.txt")
+        mission, gmat = _run_mission(tmp_path, objects={"RF": rf})
+
+        with pytest.raises(GmatRunError):
+            mission.run()
+
+        # Filename was never rewritten, and RunScript / UseLogFile never ran.
+        assert all(name != "Filename" for name, _ in rf.set_calls)
+        assert gmat._log_paths == []
+        assert mission["RF.Filename"] == "../escape.txt"
+
+    def test_identical_relative_paths_raise_intra_run_collision(self, tmp_path: Path) -> None:
+        # Two subscribers declaring the *same* relative Filename resolve to
+        # one path — a collision the script itself carries. The hardened gate
+        # surfaces it instead of letting the second writer clobber the first.
+        mission, _ = _run_mission(
+            tmp_path,
+            objects={
+                "R1": _report_file("R1", "out.txt"),
+                "R2": _report_file("R2", "out.txt"),
+            },
+        )
+
+        with pytest.raises(GmatRunError) as excinfo:
+            mission.run()
+
+        assert "multiple outputs resolve to the same path" in str(excinfo.value)
+
+    def test_intra_run_collision_raises_even_with_overwrite(self, tmp_path: Path) -> None:
+        # overwrite= governs pre-existing files, not two outputs of one run
+        # racing onto a single path — so the intra-run gate raises regardless.
+        mission, _ = _run_mission(
+            tmp_path,
+            objects={
+                "R1": _report_file("R1", "out.txt"),
+                "R2": _report_file("R2", "out.txt"),
+            },
+        )
+
+        with pytest.raises(GmatRunError, match="multiple outputs resolve"):
+            mission.run(overwrite=True)
+
+    def test_solver_relative_report_file_subdirectory_preserved(self, tmp_path: Path) -> None:
+        # The solver .data twin of _rewrite_output_paths: a relative
+        # ReportFile keeps its subdirectory structure under the workspace.
+        dc = _diff_corrector("DC", "logs/dc.data")
+        mission, _ = _run_mission(tmp_path, objects={"DC": dc})
+
+        result = mission.run()
+
+        nested = result.output_dir / "logs" / "dc.data"
+        assert ("ReportFile", str(nested)) in dc.set_calls
+        assert (result.output_dir / "logs").is_dir()
+
+    def test_solver_relative_report_file_escape_raises(self, tmp_path: Path) -> None:
+        # A solver ReportFile with a `..` component is rejected the same way
+        # a subscriber Filename is.
+        dc = _diff_corrector("DC", "../escape/dc.data")
+        mission, gmat = _run_mission(tmp_path, objects={"DC": dc})
+
+        with pytest.raises(GmatRunError) as excinfo:
+            mission.run()
+
+        assert "DC" in str(excinfo.value)
+        assert "escape working_dir" in str(excinfo.value)
+        assert gmat._log_paths == []
+
+    def test_solver_escape_rolls_back_subscriber_rewrite(self, tmp_path: Path) -> None:
+        # _rewrite_output_paths runs before _discover_solver_outputs. If a
+        # solver path is rejected, the subscriber Filenames already pinned
+        # must be rolled back so a refused run leaves the engine reflecting
+        # the loaded script (issue #115).
+        rf = _report_file("RF", "rel.txt")
+        dc = _diff_corrector("DC", "../escape/dc.data")
+        mission, _ = _run_mission(tmp_path, objects={"RF": rf, "DC": dc})
+
+        with pytest.raises(GmatRunError):
+            mission.run()
+
+        assert mission["RF.Filename"] == "rel.txt"
 
 
 # --- Mission.attitude_inputs --------------------------------------------------

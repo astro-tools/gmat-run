@@ -445,9 +445,17 @@ class Mission:
         # Solver .data logs are redirected the same way. The returned paths are
         # *expected* locations — a Solver no Target/Optimize block exercises
         # writes nothing, so existence is rechecked after the run below.
-        solver_expected, solver_max_iterations, solver_restores = self._discover_solver_outputs(
-            workspace_path
-        )
+        try:
+            solver_expected, solver_max_iterations, solver_restores = self._discover_solver_outputs(
+                workspace_path
+            )
+        except Exception:
+            # _rewrite_output_paths already pinned subscriber Filenames into
+            # the workspace; if solver discovery then rejects a path, roll
+            # those back before propagating so a refused run leaves the engine
+            # reflecting the loaded script (issue #115).
+            self._restore_output_paths(sub_restores)
+            raise
         all_paths = (
             *report_paths.values(),
             *ephemeris_paths.values(),
@@ -466,6 +474,11 @@ class Mission:
             # the user's destination and we honour them. Default raises;
             # overwrite=True unlinks the colliding files first.
             _check_inside_workspace_collisions(workspace_path, all_paths, overwrite=overwrite)
+            # Create parent directories for nested output paths now the gate
+            # has passed — GMAT does not create them itself, and a relative
+            # Filename with subdirectories (issue #119) resolves to a nested
+            # path that would otherwise fail to write.
+            _create_output_dirs(workspace_path, all_paths)
             log_path = workspace_path / "GmatLog.txt"
 
             self._gmat.UseLogFile(str(log_path))
@@ -625,20 +638,28 @@ class Mission:
         """Bucket subscriber output paths and pin each one to ``workspace_path``.
 
         Walks every ``ReportFile`` / ``EphemerisFile`` / ``ContactLocator`` in
-        the configuration. For each: reads its declared ``Filename``, resolves
-        a relative filename against ``workspace_path`` (preserving an absolute
-        path as-is), writes the resolved absolute path back to the engine via
-        ``SetField("Filename", ...)``, and records the path in the appropriate
-        return bucket. Resilient to missing type-enum attributes and broken
-        objects — skips quietly rather than aborting the whole run.
+        the configuration. For each: reads its declared ``Filename`` and
+        resolves it against ``workspace_path`` via :func:`_resolve_output_path`
+        — a relative filename keeps its subdirectory structure under the
+        workspace (issue #119), an absolute path is left as-is — then writes
+        the resolved path back to the engine via ``SetField("Filename", ...)``
+        and records it in the appropriate return bucket. Resilient to missing
+        type-enum attributes and broken objects — skips quietly rather than
+        aborting the whole run.
+
+        Done in two phases: phase one discovers and resolves every output
+        path, phase two writes them back. The split means a relative
+        ``Filename`` that would escape the workspace (a ``..`` component)
+        raises in phase one — before any ``SetField`` — so a refused run
+        leaves every engine field untouched.
 
         Every relative ``Filename`` that gets rewritten also yields a restore
         entry — ``(resource_name, "Filename", declared_value)`` — so
         :meth:`run` can return the engine field to its script-declared state
         once the run is over (see :meth:`_restore_output_paths`). Without that
         rollback the rewritten absolute path would survive into the next
-        ``run()``, where the ``is_absolute()`` check below would mistake it for
-        a user-pinned destination and skip the redirect (issue #115). An
+        ``run()``, where the ``is_absolute()`` check would mistake it for a
+        user-pinned destination and skip the redirect (issue #115). An
         absolute ``Filename`` is left untouched and produces no restore entry.
 
         Returns:
@@ -657,6 +678,10 @@ class Mission:
             "ContactLocator": contacts,
         }
         seen: set[str] = set()
+        # Phase one — discover every output subscriber and resolve its declared
+        # Filename. _resolve_output_path raises here, before any field is
+        # mutated, if a relative path would escape the workspace.
+        pending: list[tuple[str, Any, str, str, Path]] = []
         for enum_attr in _OUTPUT_TYPE_ENUM_ATTRS:
             type_id = getattr(self._gmat, enum_attr, None)
             if type_id is None:
@@ -683,17 +708,19 @@ class Mission:
                     declared = str(obj.GetField("Filename"))
                 except Exception:
                     continue
-                path = Path(declared)
-                if path.is_absolute():
-                    resolved = path
-                else:
-                    resolved = workspace_path / path.name
-                    with suppress(Exception):
-                        obj.SetField("Filename", str(resolved))
-                        # Only recorded once SetField has actually landed —
-                        # a suppressed failure leaves nothing to restore.
-                        restores.append((name, "Filename", declared))
-                bucket[type_name][name] = resolved
+                resolved = _resolve_output_path(name, declared, workspace_path)
+                pending.append((name, obj, type_name, declared, resolved))
+        # Phase two — pin each relative Filename into the workspace. Deferred
+        # to its own pass so a workspace-escape error above aborts the run
+        # before any engine field has been touched.
+        for name, obj, type_name, declared, resolved in pending:
+            if not Path(declared).is_absolute():
+                with suppress(Exception):
+                    obj.SetField("Filename", str(resolved))
+                    # Only recorded once SetField has actually landed —
+                    # a suppressed failure leaves nothing to restore.
+                    restores.append((name, "Filename", declared))
+            bucket[type_name][name] = resolved
         return reports, ephemerides, contacts, restores
 
     def _discover_solver_outputs(
@@ -706,13 +733,19 @@ class Mission:
         when set, otherwise the default ``<TypeName><SolverName>.data`` — and,
         for a relative or unset value, rewrites ``ReportFile`` to an absolute
         path inside ``workspace_path`` via ``SetField`` so GMAT writes where we
-        expect. An absolute ``ReportFile`` is the user's chosen destination and
-        is left alone, mirroring :meth:`_rewrite_output_paths`. The solver's
-        ``MaximumIterations`` is read alongside — the ``.data`` file does not
-        record it, but the parser needs it to classify a max-iteration stop.
+        expect. Resolution goes through :func:`_resolve_output_path`, so a
+        relative value keeps its subdirectory structure under the workspace
+        (issue #119) and an absolute ``ReportFile`` — the user's chosen
+        destination — is left alone, mirroring :meth:`_rewrite_output_paths`.
+        The solver's ``MaximumIterations`` is read alongside — the ``.data``
+        file does not record it, but the parser needs it to classify a
+        max-iteration stop.
 
         Resilient to a missing ``SOLVER`` enum and to broken objects — skips
-        quietly rather than aborting the run.
+        quietly rather than aborting the run. Done in two phases like
+        :meth:`_rewrite_output_paths`: a relative value that would escape the
+        workspace (a ``..`` component) raises during phase one, before any
+        ``SetField``.
 
         Each rewritten ``ReportFile`` yields a restore entry, exactly as in
         :meth:`_rewrite_output_paths`, so :meth:`run` can roll the engine
@@ -735,6 +768,10 @@ class Mission:
         paths: dict[str, Path] = {}
         max_iterations: dict[str, int] = {}
         restores: list[_OutputPathRestore] = []
+        # Phase one — resolve every solver .data path. _resolve_output_path
+        # raises here, before any field is mutated, if a relative ReportFile
+        # would escape the workspace.
+        pending: list[tuple[str, Any, str, str, Path]] = []
         for name in names:
             obj = self._gmat.GetObject(name)
             if obj is None:
@@ -746,19 +783,21 @@ class Mission:
             declared = ""
             with suppress(Exception):
                 declared = str(obj.GetField("ReportFile"))
-            path = Path(declared) if declared else Path(f"{type_name}{name}.data")
-            if path.is_absolute():
-                resolved = path
-            else:
-                resolved = workspace_path / path.name
+            effective = declared if declared else f"{type_name}{name}.data"
+            resolved = _resolve_output_path(name, effective, workspace_path)
+            pending.append((name, obj, declared, effective, resolved))
+            with suppress(Exception):
+                max_iterations[name] = int(float(str(obj.GetField("MaximumIterations"))))
+        # Phase two — pin each relative ReportFile into the workspace, deferred
+        # so a phase-one escape error aborts before any field is mutated.
+        for name, obj, declared, effective, resolved in pending:
+            paths[name] = resolved
+            if not Path(effective).is_absolute():
                 with suppress(Exception):
                     obj.SetField("ReportFile", str(resolved))
                     # Recorded only after SetField lands — see the matching
                     # note in _rewrite_output_paths.
                     restores.append((name, "ReportFile", declared))
-            paths[name] = resolved
-            with suppress(Exception):
-                max_iterations[name] = int(float(str(obj.GetField("MaximumIterations"))))
         return paths, max_iterations, restores
 
     def _restore_output_paths(self, restores: Iterable[_OutputPathRestore]) -> None:
@@ -1061,20 +1100,84 @@ def _probe_writable(path: Path) -> None:
         os.unlink(probe)
 
 
+def _resolve_output_path(name: str, declared: str, workspace_path: Path) -> Path:
+    """Resolve a subscriber / solver output path against ``workspace_path``.
+
+    An absolute ``declared`` path is the user's chosen destination and is
+    returned unchanged. A relative path is pinned under ``workspace_path``
+    with its subdirectory structure preserved, so two outputs declared with
+    distinct relative paths that share a basename — ``runs/a/out.txt`` and
+    ``runs/b/out.txt`` — resolve to distinct files instead of both collapsing
+    onto ``workspace/out.txt`` (issue #119).
+
+    A relative path containing a ``..`` component is rejected with
+    :class:`~gmat_run.errors.GmatRunError`: it could resolve outside
+    ``workspace_path``, and gmat-run will not write beyond the workspace it
+    manages. Callers resolve every output path before mutating any engine
+    field, so a raised error leaves the run un-started and the workspace
+    untouched.
+    """
+    path = Path(declared)
+    if path.is_absolute():
+        return path
+    if ".." in path.parts:
+        raise GmatRunError(
+            f"resource '{name}' declares a relative output path '{declared}' "
+            f"with a '..' component that could escape working_dir "
+            f"'{workspace_path}'; use a path inside the workspace or an "
+            f"absolute path",
+            log="",
+            path=workspace_path,
+        )
+    return workspace_path / path
+
+
+def _create_output_dirs(workspace_path: Path, paths: Iterable[Path]) -> None:
+    """Pre-create parent directories for output paths inside the workspace.
+
+    Preserving a relative ``Filename``'s subdirectory structure under
+    ``workspace_path`` (issue #119) means a ``ReportFile`` declared as
+    ``runs/a/out.txt`` resolves to a nested path — but GMAT does not create
+    output directories itself, so the write would fail unless ``runs/a/``
+    exists first. This walks the resolved output set and creates every parent
+    that lives under the workspace. Absolute paths the script pinned outside
+    the workspace are the user's destination and are left alone.
+
+    Runs after the collision gate so a refused run still leaves the workspace
+    untouched. A path directly in the workspace has the (already-created)
+    workspace as its parent, so ``mkdir`` is a no-op there.
+    """
+    try:
+        workspace_resolved = workspace_path.resolve()
+    except OSError:
+        return
+    for p in paths:
+        if not _is_inside(p, workspace_resolved):
+            continue
+        with suppress(OSError):
+            p.parent.mkdir(parents=True, exist_ok=True)
+
+
 def _check_inside_workspace_collisions(
     workspace_path: Path,
     paths: Iterable[Path],
     *,
     overwrite: bool,
 ) -> None:
-    """Gate or clear pre-existing output files inside the workspace.
+    """Gate two output-path collision classes inside the workspace.
 
     Walks every resolved output path; only those that live under
     ``workspace_path`` (i.e. relative ``Filename`` rewrites, not user-pinned
-    absolute paths) participate in the gate. With ``overwrite=False`` (the
-    default), any pre-existing file raises
-    :class:`~gmat_run.errors.GmatRunError` listing the collisions; with
-    ``overwrite=True`` they are unlinked instead.
+    absolute paths) participate. Two classes are caught:
+
+    * **Intra-run** — two outputs of *this* run resolved to the same path. It
+      raises regardless of ``overwrite``: ``overwrite`` governs pre-existing
+      files, not two writers racing onto one path within a single run, and
+      letting the run proceed would silently clobber one output.
+    * **Pre-existing** — a file already on disk at a resolved output path.
+      With ``overwrite=False`` (the default) this raises
+      :class:`~gmat_run.errors.GmatRunError` listing the collisions; with
+      ``overwrite=True`` the files are unlinked instead.
 
     The check runs before ``RunScript`` so a refused run leaves the workspace
     untouched (the error message tells the caller exactly what to clear, or
@@ -1088,12 +1191,30 @@ def _check_inside_workspace_collisions(
         # the gate rather than raise a confusing collision error. Writability
         # would have already failed if this path were genuinely broken.
         return
-    collisions: list[Path] = []
-    for p in paths:
-        if not _is_inside(p, workspace_resolved):
-            continue
-        if p.exists():
-            collisions.append(p)
+    inside = [p for p in paths if _is_inside(p, workspace_resolved)]
+    # Intra-run collision: two resolved output paths are identical. With
+    # relative subdirectory structure preserved (issue #119) this only
+    # happens when two resources declare the same relative Filename — a
+    # collision the script itself carries, which gmat-run surfaces rather
+    # than letting the second writer silently clobber the first.
+    seen: set[Path] = set()
+    duplicates: list[Path] = []
+    for p in inside:
+        if p in seen and p not in duplicates:
+            duplicates.append(p)
+        seen.add(p)
+    if duplicates:
+        listing = ", ".join(str(p) for p in duplicates)
+        raise GmatRunError(
+            (
+                f"working_dir '{workspace_path}': multiple outputs resolve to "
+                f"the same path: {listing}; give the colliding subscribers "
+                f"distinct Filename values"
+            ),
+            log="",
+            path=workspace_path,
+        )
+    collisions = [p for p in inside if p.exists()]
     if not collisions:
         return
     if overwrite:
