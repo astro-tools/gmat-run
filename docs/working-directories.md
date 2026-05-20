@@ -25,20 +25,36 @@ the cache by rewriting each subscriber's `Filename` field to an absolute path
 inside the workspace before invoking `RunScript`.
 
 - A **relative** `Filename` (e.g. `RF.Filename = 'leo_state.txt'`) is rewritten
-  to `<working_dir>/leo_state.txt`. Any leading directory component is dropped
-  — output files always land at the top of the workspace, on every OS, and
-  forward-slash and back-slash relative paths are treated identically.
+  to the matching path inside the workspace — `<working_dir>/leo_state.txt`. A
+  relative path that carries directory components
+  (`RF.Filename = 'reports/leo_state.txt'`) keeps its subdirectory structure:
+  it resolves to `<working_dir>/reports/leo_state.txt`, and
+  [`Mission.run`][gmat_run.Mission.run] pre-creates the nested parent
+  directories that GMAT itself will not. Forward-slash and back-slash relative
+  paths are treated identically on every OS. A relative `Filename` containing a
+  `..` component is refused with [`GmatRunError`][gmat_run.GmatRunError] before
+  the run — it could resolve outside the workspace gmat-run manages.
 - An **absolute** `Filename` (e.g. `RF.Filename = '/data/runs/leo.txt'`) is
   honoured as-is. The user picked that destination; gmat-run does not relocate
   it.
 
-Reading the field back from Python after the run yields the resolved absolute
-path:
+If two of a run's outputs resolve to the same path — two subscribers declaring
+an identical relative `Filename` — the run is refused with
+[`GmatRunError`][gmat_run.GmatRunError], regardless of `overwrite`.
+
+The rewrite does not persist on the `Mission`. A `Mission` stays a view of the
+loaded script: reading a subscriber's `Filename` back after the run yields the
+value declared in the script, not the resolved workspace path. The resolved
+output locations live on the returned [`Results`][gmat_run.Results] —
+`report_paths`, `ephemeris_paths`, `contact_paths`, and `solver_paths` each map
+a resource name to the absolute path GMAT actually wrote:
 
 ```python
 mission = Mission.load("flyby.script")
 result = mission.run(working_dir="out")
-mission["RF.Filename"]  # '/abs/.../out/leo_state.txt'
+
+mission["RF.Filename"]       # 'leo_state.txt' — the script's declared value
+result.report_paths["RF"]    # Path('/abs/.../out/leo_state.txt')
 ```
 
 ## Out-of-workspace notice
