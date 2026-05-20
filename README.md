@@ -112,7 +112,7 @@ and sample output.
 
 ## Outputs
 
-`Results` exposes three mappings, each keyed by the GMAT resource name as declared in the
+`Results` exposes four mappings, each keyed by the GMAT resource name as declared in the
 `.script`:
 
 - **`ReportFile`** → DataFrame, with `UTCGregorian` and `*ModJulian` epoch columns promoted
@@ -129,6 +129,10 @@ and sample output.
   variable, the goal/constraint residuals, and a `status` column; `df.attrs["converged"]`
   and the `Results.converged` shortcut answer the yes/no. `DifferentialCorrector` and
   `Yukon` are covered.
+
+Each mapping has a sibling path accessor — `report_paths`, `ephemeris_paths`,
+`contact_paths`, and `solver_paths` — mapping each resource name to the file GMAT wrote,
+so you can locate an output without parsing it.
 
 ## Documentation
 
@@ -148,8 +152,8 @@ Runnable example notebooks:
   vary `Sat.SMA` across a range, run the same script for each, and overlay the resulting
   orbits.
 - [Ground track](https://astro-tools.github.io/gmat-run/examples/03_ground_track/) — read an
-  `EphemerisFile` from `Results.ephemerides` and plot the spacecraft's ground track on a
-  Cartopy world map.
+  `EphemerisFile` from `Results.ephemerides` and plot the spacecraft's ground track on an
+  equirectangular world map.
 - [Export to CCSDS-OEM](https://astro-tools.github.io/gmat-run/examples/04_export_oem/) —
   run a stock GMAT sample that emits an STK ephemeris, convert it to a CCSDS-OEM file
   with `Results.write_oem`, re-parse the result, and visualise the trajectory in 3D.

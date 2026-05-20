@@ -3,7 +3,7 @@
 [`astro-tools/setup-gmat`](https://github.com/astro-tools/setup-gmat) installs
 GMAT on the runner, caches it across runs, and exports `GMAT_ROOT` to the
 workflow environment. With it, a complete CI workflow for a project that uses
-gmat-run is four steps.
+gmat-run is five steps.
 
 ## Minimal workflow
 
@@ -18,7 +18,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
@@ -86,7 +86,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
         gmat-version: [R2025a, R2026a]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

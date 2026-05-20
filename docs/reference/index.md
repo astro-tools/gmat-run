@@ -14,8 +14,8 @@ The reference splits into one page per module:
   ([`Mission.load`][gmat_run.Mission.load], dotted-path field access,
   [`Mission.run`][gmat_run.Mission.run]).
 - [Results](results.md) — the value returned by
-  [`Mission.run`][gmat_run.Mission.run]: `reports`, `ephemerides`, `contacts`
-  as lazy `Mapping[str, pandas.DataFrame]`, plus
+  [`Mission.run`][gmat_run.Mission.run]: `reports`, `ephemerides`, `contacts`,
+  and `solver_runs` as lazy `Mapping[str, pandas.DataFrame]`, plus
   [`Results.persist`][gmat_run.Results.persist].
 - [Mission summary](summary.md) — the dataclass schema returned by
   [`Mission.summary`][gmat_run.Mission.summary]
@@ -31,6 +31,6 @@ The reference splits into one page per module:
   leaf classes.
 - [Parsers](parsers.md) — `gmat_run.parsers`, the standalone functions for
   ReportFile, EphemerisFile (CCSDS-OEM / STK-TimePosVel / SPK), CCSDS-AEM
-  attitude, ContactLocator, and epoch-column promotion. You normally do not
-  call these directly — [`Mission.run`][gmat_run.Mission.run] dispatches to
-  the right one for you.
+  attitude, ContactLocator, solver-iteration logs, and epoch-column promotion.
+  You normally do not call these directly — [`Mission.run`][gmat_run.Mission.run]
+  dispatches to the right one for you.
