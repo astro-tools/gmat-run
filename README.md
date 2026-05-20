@@ -19,7 +19,8 @@ gmat-run loads it, lets you override fields from Python, runs the mission headle
 - **Not** a way to build GMAT missions from scratch in Python — see
   [`gmatpyplus`](https://github.com/weasdown/gmatpyplus) for that.
 - **Not** a `.script` text generator — see [`pygmat`](https://pypi.org/project/pygmat/).
-- **Not** a parallel sweep runner — that's a future astro-tools project (`gmat-sweep`) built on top.
+- **Not** a parallel sweep runner — see [`gmat-sweep`](https://github.com/astro-tools/gmat-sweep),
+  an astro-tools project built on top.
 
 ## Requirements
 

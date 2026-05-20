@@ -23,8 +23,8 @@ result.reports["ReportFile1"].plot(x="UTCGregorian", y="Sat.Earth.Altitude")
 - **Not** a way to build GMAT missions from scratch in Python — see
   [gmatpyplus](https://github.com/weasdown/gmatpyplus) for that.
 - **Not** a `.script` text generator — see [pygmat](https://pypi.org/project/pygmat/).
-- **Not** a parallel sweep runner — that's a future astro-tools project (`gmat-sweep`)
-  built on top of gmat-run.
+- **Not** a parallel sweep runner — see [gmat-sweep](https://github.com/astro-tools/gmat-sweep),
+  an astro-tools project built on top of gmat-run.
 
 ## Where to next
 

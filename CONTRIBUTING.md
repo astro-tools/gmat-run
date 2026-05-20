@@ -73,7 +73,7 @@ existing issues to make sure the work belongs here and not in a future repo.
 
 - **Building missions in Python →** [`gmatpyplus`](https://github.com/weasdown/gmatpyplus).
 - **Generating `.script` text from Python →** [`pygmat`](https://pypi.org/project/pygmat/).
-- **Parallel sweeps / Monte Carlo →** a future `astro-tools/gmat-sweep`.
+- **Parallel sweeps / Monte Carlo →** [`astro-tools/gmat-sweep`](https://github.com/astro-tools/gmat-sweep).
 
 ## Questions
 
