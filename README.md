@@ -82,6 +82,10 @@ ephem = result.ephemerides["EphemerisFile1"]
 
 # ContactLocator → DataFrame; df.attrs["report_format"] carries the variant.
 contacts = result.contacts["ContactLocator1"]
+
+# Solver → DataFrame per Target/Optimize run: iteration history, residuals,
+# and a convergence flag. result.converged["DC"] is the quick yes/no.
+iterations = result.solver_runs["DC"]
 ```
 
 `Mission.load` discovers a local GMAT install (honouring the `GMAT_ROOT` environment variable
@@ -95,9 +99,9 @@ object graph. Subscript access reads and writes fields against that graph with t
 | `Variable.Value` | `mission["elapsed_seconds.Value"] = 86400.0` |
 
 `mission.run()` executes the mission sequence headlessly, captures GMAT's log, and returns a
-`Results` exposing three lazy mappings — `reports`, `ephemerides`, and `contacts` — each
-keyed by the GMAT resource name and parsing to a DataFrame on first access. See
-[Outputs](#outputs) below for the formats covered.
+`Results` exposing four lazy mappings — `reports`, `ephemerides`, `contacts`, and
+`solver_runs` — each keyed by the GMAT resource name and parsing to a DataFrame on first
+access. See [Outputs](#outputs) below for the formats covered.
 
 A `gmat-run` console script is also installed for shell-script and smoke-test use:
 
@@ -122,6 +126,11 @@ and sample output.
 - **`ContactLocator`** → DataFrame, supporting Legacy and the five tabular `ReportFormat`
   variants. `df.attrs["report_format"]` carries the variant name so downstream code can
   branch on it without inspecting the column set.
+- **`Solver`** → one DataFrame per `Target` / `Optimize` run, parsed from the iteration
+  log GMAT writes for each `Solver`. One row per iteration, with a column per `Vary`
+  variable, the goal/constraint residuals, and a `status` column; `df.attrs["converged"]`
+  and the `Results.converged` shortcut answer the yes/no. `DifferentialCorrector` and
+  `Yukon` are covered.
 
 ## Documentation
 

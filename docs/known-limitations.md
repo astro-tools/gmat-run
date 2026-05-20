@@ -132,6 +132,33 @@ GMAT actually emits in v0.4; uncommon variants raise
 - **Code-500 binary ephemeris**: not implemented. No public tooling decodes
   the format, and GMAT does not exercise it in its stock R2026a samples.
 
+## Solver iteration logs
+
+[`Results.solver_runs`][gmat_run.Results] parses the per-`Solver` `.data` file
+GMAT writes for a `Target` / `Optimize` run. A few properties of that file
+shape what the mapping can offer.
+
+- **A shared `Solver` keeps only the last block's history.** When several
+  `Target` / `Optimize` blocks name the same `Solver` resource, GMAT writes all
+  of them to one `.data` file, each block overwriting the previous one. The
+  surfaced DataFrame therefore covers the **last** block only;
+  `df.attrs["source_path"]` points at the overwritten file. Declare a separate
+  `Solver` resource per block to keep each block's iteration history.
+- **`DifferentialCorrector` convergence is derived, not stamped.** Unlike the
+  optimizers, a targeter's log ends with the same "Targeting Completed" line
+  whether or not the goal was met. gmat-run computes `converged` from the last
+  iteration's residual against its tolerance, so `df.attrs["converged"]` for a
+  `DifferentialCorrector` is a library judgement, not a value read from the
+  file.
+- **Jacobians are not surfaced.** A `DifferentialCorrector` log also records
+  the sensitivity matrix, its inverse, and scaled variable estimates. These are
+  optimizer-specific (a `Yukon` log has no analogue) and are not parsed into
+  the DataFrame.
+- **Only the `Normal` report style is parsed.** The parser targets the layout
+  GMAT writes at the default `Solver.ReportStyle = Normal`. `Concise`,
+  `Verbose`, and `Debug` styles change the file structure and are not
+  supported.
+
 ## Epoch promotion is not a time-scale conversion
 
 [`gmat_run.parsers.epoch.promote_epochs`][gmat_run.parsers.epoch.promote_epochs]
