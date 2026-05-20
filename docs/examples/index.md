@@ -22,3 +22,8 @@ locally after `pip install gmat-run[examples]` and the matplotlib dependency.
   between A1, TAI, UTC, TT, and TDB with
   [`gmat_run.time.convert`][gmat_run.time.convert] and the parser-level
   `convert_to=` keyword.
+- [Solver iterations](06_solver_iterations.ipynb) — target a Hohmann transfer with
+  a `DifferentialCorrector`, then read the targeter's iteration history back from
+  [`Results.solver_runs`][gmat_run.Results] — the `Vary` variables, the `Achieve`
+  goal residuals, and a convergence flag — and watch a capped run end without
+  converging.

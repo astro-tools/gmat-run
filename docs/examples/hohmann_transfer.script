@@ -1,0 +1,72 @@
+%
+%  Hohmann transfer with a targeted two-burn sequence
+%
+%  Propagate to perigee, then run a DifferentialCorrector that varies two
+%  impulsive burns (TOI, GOI) to raise apogee to geosynchronous radius and
+%  circularise the orbit.
+%
+%  Trimmed copy of GMAT's stock Ex_HohmannTransfer sample for the gmat-run
+%  examples: the OpenFramesInterface / OpenFramesView visualisation resources
+%  are removed so the script runs headless without the OpenFrames plugin. The
+%  Spacecraft, ForceModel, Propagator, Burns, DifferentialCorrector, and
+%  mission sequence are unchanged, so the solver .data output is identical to
+%  the stock sample.
+%
+
+%----------------------------------------
+%---------- Spacecraft
+%----------------------------------------
+
+Create Spacecraft DefaultSC;
+
+%----------------------------------------
+%---------- Propagators
+%----------------------------------------
+
+Create ForceModel DefaultProp_ForceModel;
+
+Create Propagator DefaultProp;
+
+DefaultProp.FM = DefaultProp_ForceModel;
+
+%----------------------------------------
+%---------- Burns
+%----------------------------------------
+
+Create ImpulsiveBurn TOI;
+
+TOI.CoordinateSystem = Local;
+TOI.Origin           = Earth;
+TOI.Axes             = VNB;
+
+Create ImpulsiveBurn GOI;
+
+GOI.CoordinateSystem = Local;
+GOI.Origin           = Earth;
+GOI.Axes             = VNB;
+
+%----------------------------------------
+%---------- Solvers
+%----------------------------------------
+
+Create DifferentialCorrector DC;
+
+%----------------------------------------
+%---------- Mission Sequence
+%----------------------------------------
+BeginMissionSequence;
+
+Propagate 'Prop to Perigee' DefaultProp(DefaultSC) {DefaultSC.Periapsis};
+
+% Burn in the velocity direction to reach an alternate Apoapsis point
+Target 'Raise and Circularize' DC {SolveMode = Solve, ExitMode = DiscardAndContinue};
+   Vary 'Vary TOI.V' DC(TOI.Element1 = 0.5, {Perturbation = 0.0001, Lower = 0, Upper = 3.14159, MaxStep = 0.2});
+   Maneuver 'Apply TOI' TOI(DefaultSC);
+   Propagate 'Prop to Apogee' DefaultProp(DefaultSC) {DefaultSC.Apoapsis};
+   Achieve 'Achieve RMAG' DC(DefaultSC.Earth.RMAG = 42165, {Tolerance = 0.1});
+   Vary 'Vary GOI.V' DC(GOI.Element1 = 0.5, {Perturbation = 0.0001, Lower = 0, Upper = 3.14159, MaxStep = 0.2});
+   Maneuver 'Apply GOI' GOI(DefaultSC);
+   Achieve 'Achieve ECC' DC(DefaultSC.ECC = 0, {Tolerance = 0.1});
+EndTarget;  % For targeter DC
+
+Propagate 'Prop 1 Day' DefaultProp(DefaultSC) {DefaultSC.ElapsedSecs = 86400};
