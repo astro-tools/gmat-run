@@ -113,6 +113,12 @@ def _validate_install(root: Path) -> GmatInstall | str:
     if not root.is_dir():
         return "not a directory"
 
+    # Canonicalise once so every GmatInstall for a given physical install
+    # compares equal regardless of how the path was spelled (argument, env
+    # var, glob, PATH discovery, or via a symlink). bootstrap()'s "second
+    # install" guard relies on that field-wise equality.
+    root = root.resolve()
+
     bin_dir = root / "bin"
     if not bin_dir.is_dir():
         return "missing bin/ directory"
