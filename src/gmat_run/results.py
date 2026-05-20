@@ -343,7 +343,7 @@ class Results:
         user chose that destination and we honour it. Already-parsed
         DataFrames stay cached; they are independent of the on-disk files.
 
-        Calling ``persist`` again later moves the artefacts to the new
+        Calling ``persist`` again later copies the artefacts to the new
         destination. A no-op fast path applies when the destination already
         equals the current ``output_dir``.
 
