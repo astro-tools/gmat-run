@@ -33,8 +33,6 @@ gmat-run loads it, lets you override fields from Python, runs the mission headle
 |---|---|---|
 | R2026a | Primary development target | Exercised on every PR (Ubuntu + Windows + macOS, Python 3.10/3.11/3.12) |
 | R2025a | Supported | Exercised on every PR (Ubuntu + Windows + macOS, Python 3.10/3.11/3.12) |
-| R2024a | Expected to work | Not exercised in CI |
-| R2023a | Expected to work | Not exercised in CI |
 | R2022a | Expected to work | Not exercised in CI (Python 3.9 ABI floor; see [known limitations](https://astro-tools.github.io/gmat-run/known-limitations/)) |
 
 Report any version-specific breakage as an issue and we'll add a CI cell for it.

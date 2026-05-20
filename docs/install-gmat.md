@@ -14,7 +14,6 @@ handles the install for you.
 | --------------------- | ------------------------------------------------------------------------------------- |
 | R2026a                | Primary development target; exercised on every PR (Ubuntu + Windows + macOS, Python 3.10/3.11/3.12). |
 | R2025a                | Supported; exercised on every PR (Ubuntu + Windows + macOS, Python 3.10/3.11/3.12).   |
-| R2023a, R2024a        | Supported on a best-effort basis; not exercised in CI.                                |
 | R2022a                | Best-effort; not exercised in CI (Python 3.9 ABI floor; see [known limitations][r2022a-floor]). |
 | Earlier               | Not supported. gmatpy ships per-Python-minor shared libraries; older releases predate Python 3.10. |
 

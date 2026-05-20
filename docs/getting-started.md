@@ -12,8 +12,6 @@
 | ------------ | -------------------------- | --------------------------------------------------------------------------------- |
 | R2026a       | Primary development target | Exercised on every PR (Ubuntu + Windows + macOS, Python 3.10/3.11/3.12)           |
 | R2025a       | Supported                  | Exercised on every PR (Ubuntu + Windows + macOS, Python 3.10/3.11/3.12)           |
-| R2024a       | Expected to work           | Not exercised in CI                                                               |
-| R2023a       | Expected to work           | Not exercised in CI                                                               |
 | R2022a       | Expected to work           | Not exercised in CI (Python 3.9 ABI floor; see [known limitations][r2022a-floor]) |
 
 [r2022a-floor]: known-limitations.md#r2022a-is-not-exercised-in-ci
