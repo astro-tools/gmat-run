@@ -86,6 +86,13 @@ _SPACECRAFT_TYPE_ENUM_ATTR: Final = "SPACECRAFT"
 # iteration logs. Probed with the same defensive ``getattr`` as the others.
 _SOLVER_TYPE_ENUM_ATTR: Final = "SOLVER"
 
+# One engine path field rewritten for the duration of a single run(): the
+# resource name, the field name (``"Filename"`` / ``"ReportFile"``), and the
+# value the field held before the rewrite. run() rolls each of these back in a
+# finally so the engine field reflects the loaded script between runs — see
+# Mission._restore_output_paths and issue #115.
+_OutputPathRestore = tuple[str, str, str]
+
 
 class _LazyAttitudeInputs(Mapping[str, pd.DataFrame]):
     """Mapping view over CCSDS-AEM files referenced by Spacecraft resources.
@@ -353,8 +360,13 @@ class Mission:
         and the run honours it. The rewrite is the only mechanism GMAT
         actually consults at write time; ``FileManager.OUTPUT_PATH`` is
         cached per-subscriber at Initialize time and ignored thereafter.
-        After :meth:`run` returns, reading ``mission["RF.Filename"]`` yields
-        the resolved absolute path, which points at the file on disk.
+        The rewrite is reverted once the run is over — reading
+        ``mission["RF.Filename"]`` afterwards yields the script's declared
+        value again, not the workspace path. ``Mission`` stays a view of the
+        loaded script (as with :attr:`attitude_inputs`); the resolved output
+        locations live on the returned :class:`Results`. Each :meth:`run`
+        therefore redirects independently of any earlier run on the same
+        ``Mission``.
 
         **Solver logs.** Every ``Target`` / ``Optimize`` run writes a
         per-``Solver`` ``.data`` iteration log. Its ``<Solver>.ReportFile``
@@ -427,82 +439,101 @@ class Mission:
         # has been parsed: the resolved absolute path is cached on each
         # subscriber, and overriding the Filename field is the only setting
         # the engine consults at write time.
-        report_paths, ephemeris_paths, contact_paths = self._rewrite_output_paths(workspace_path)
+        report_paths, ephemeris_paths, contact_paths, sub_restores = self._rewrite_output_paths(
+            workspace_path
+        )
         # Solver .data logs are redirected the same way. The returned paths are
         # *expected* locations — a Solver no Target/Optimize block exercises
         # writes nothing, so existence is rechecked after the run below.
-        solver_expected, solver_max_iterations = self._discover_solver_outputs(workspace_path)
+        solver_expected, solver_max_iterations, solver_restores = self._discover_solver_outputs(
+            workspace_path
+        )
         all_paths = (
             *report_paths.values(),
             *ephemeris_paths.values(),
             *contact_paths.values(),
             *solver_expected.values(),
         )
-        # Pre-run gate: pre-existing artefacts inside working_dir. Bounded to
-        # *resolved* output paths that live under workspace_path — absolute
-        # filenames pinned by the script outside the workspace are the user's
-        # destination and we honour them. Default raises; overwrite=True
-        # unlinks the colliding files first.
-        _check_inside_workspace_collisions(workspace_path, all_paths, overwrite=overwrite)
-        log_path = workspace_path / "GmatLog.txt"
-
-        self._gmat.UseLogFile(str(log_path))
-
-        api_exception = _get_api_exception(self._gmat)
+        # Both helpers pinned relative engine path fields into workspace_path.
+        # Roll them back once the run is over — success or failure — so the
+        # next run() on this Mission redirects from the script's declared
+        # Filename instead of this run's workspace (issue #115).
+        restores = [*sub_restores, *solver_restores]
         try:
-            status = int(self._gmat.RunScript())
-        except api_exception as exc:
+            # Pre-run gate: pre-existing artefacts inside working_dir. Bounded
+            # to *resolved* output paths that live under workspace_path —
+            # absolute filenames pinned by the script outside the workspace are
+            # the user's destination and we honour them. Default raises;
+            # overwrite=True unlinks the colliding files first.
+            _check_inside_workspace_collisions(workspace_path, all_paths, overwrite=overwrite)
+            log_path = workspace_path / "GmatLog.txt"
+
+            self._gmat.UseLogFile(str(log_path))
+
+            api_exception = _get_api_exception(self._gmat)
+            try:
+                status = int(self._gmat.RunScript())
+            except api_exception as exc:
+                log = _safe_read(log_path)
+                self._release_log_handle()
+                raise GmatRunError(
+                    f"GMAT raised {type(exc).__name__} during RunScript: {exc}",
+                    log=log,
+                ) from exc
+
             log = _safe_read(log_path)
+            # Repoint UseLogFile away from the workspace before yielding
+            # control. GMAT's MessageInterface holds the log file open for the
+            # lifetime of the gmatpy module, so on Windows any later attempt to
+            # delete the temp workspace (Results.persist, GC of the
+            # TemporaryDirectory) hits WinError 32 on GmatLog.txt. Redirecting
+            # to os.devnull closes the workspace handle; the log content has
+            # already been captured into ``log`` above. Subsequent GMAT
+            # operations log to the null sink until the next mission.run()
+            # repoints the handle again — accepted, since gmat-run's public
+            # surface ends at Results.
             self._release_log_handle()
-            raise GmatRunError(
-                f"GMAT raised {type(exc).__name__} during RunScript: {exc}",
-                log=log,
-            ) from exc
+            if status != _RUNSCRIPT_OK:
+                raise GmatRunError(
+                    f"GMAT RunScript returned status {status}; expected {_RUNSCRIPT_OK}",
+                    log=log,
+                )
 
-        log = _safe_read(log_path)
-        # Repoint UseLogFile away from the workspace before yielding control.
-        # GMAT's MessageInterface holds the log file open for the lifetime of
-        # the gmatpy module, so on Windows any later attempt to delete the
-        # temp workspace (Results.persist, GC of the TemporaryDirectory) hits
-        # WinError 32 on GmatLog.txt. Redirecting to os.devnull closes the
-        # workspace handle; the log content has already been captured into
-        # ``log`` above. Subsequent GMAT operations log to the null sink
-        # until the next mission.run() repoints the handle again — accepted,
-        # since gmat-run's public surface ends at Results.
-        self._release_log_handle()
-        if status != _RUNSCRIPT_OK:
-            raise GmatRunError(
-                f"GMAT RunScript returned status {status}; expected {_RUNSCRIPT_OK}",
+            # Out-of-workspace notice: any output the script pinned at an
+            # absolute path outside workspace_path gets a one-line summary at
+            # the top of the captured log so callers see the trail without
+            # having to re-walk the path mappings themselves.
+            notice = _format_outside_workspace_notice(workspace_path, all_paths)
+            if notice:
+                log = notice + log
+
+            # Keep only the solver logs GMAT actually wrote — a declared-but-
+            # unused Solver leaves the no-solver mapping empty rather than
+            # raising.
+            solver_paths = {n: p for n, p in solver_expected.items() if p.exists()}
+            results = Results(
+                output_dir=workspace_path,
                 log=log,
+                report_paths=report_paths,
+                ephemeris_paths=ephemeris_paths,
+                contact_paths=contact_paths,
+                solver_paths=solver_paths,
+                solver_max_iterations={
+                    n: solver_max_iterations[n] for n in solver_paths if n in solver_max_iterations
+                },
             )
-
-        # Out-of-workspace notice: any output the script pinned at an absolute
-        # path outside workspace_path gets a one-line summary at the top of
-        # the captured log so callers see the trail without having to re-walk
-        # the path mappings themselves.
-        notice = _format_outside_workspace_notice(workspace_path, all_paths)
-        if notice:
-            log = notice + log
-
-        # Keep only the solver logs GMAT actually wrote — a declared-but-unused
-        # Solver leaves the no-solver mapping empty rather than raising.
-        solver_paths = {n: p for n, p in solver_expected.items() if p.exists()}
-        results = Results(
-            output_dir=workspace_path,
-            log=log,
-            report_paths=report_paths,
-            ephemeris_paths=ephemeris_paths,
-            contact_paths=contact_paths,
-            solver_paths=solver_paths,
-            solver_max_iterations={
-                n: solver_max_iterations[n] for n in solver_paths if n in solver_max_iterations
-            },
-        )
-        # See project memory `gmat-run Mission.run temp-dir lifetime ties to
-        # Results`: the temp dir must outlive Mission.run so lazy report
-        # parsing on `result.reports[name]` still finds the file on disk.
-        results._workspace = tempdir
-        return results
+            # See project memory `gmat-run Mission.run temp-dir lifetime ties
+            # to Results`: the temp dir must outlive Mission.run so lazy report
+            # parsing on `result.reports[name]` still finds the file on disk.
+            results._workspace = tempdir
+            return results
+        finally:
+            # Engine path fields are pinned only for the duration of the run.
+            # Restoring them here — on the success return, on a GmatRunError,
+            # and on the pre-run collision gate — keeps the subscriber and
+            # solver fields reflecting the loaded script, so the next run()
+            # resolves its outputs afresh. Resolved paths live on Results.
+            self._restore_output_paths(restores)
 
     def _warn_if_workspace_is_script_dir(self, workspace_path: Path) -> None:
         """Emit a UserWarning if ``workspace_path`` resolves to the script's directory.
@@ -590,7 +621,7 @@ class Mission:
 
     def _rewrite_output_paths(
         self, workspace_path: Path
-    ) -> tuple[dict[str, Path], dict[str, Path], dict[str, Path]]:
+    ) -> tuple[dict[str, Path], dict[str, Path], dict[str, Path], list[_OutputPathRestore]]:
         """Bucket subscriber output paths and pin each one to ``workspace_path``.
 
         Walks every ``ReportFile`` / ``EphemerisFile`` / ``ContactLocator`` in
@@ -601,14 +632,25 @@ class Mission:
         return bucket. Resilient to missing type-enum attributes and broken
         objects — skips quietly rather than aborting the whole run.
 
+        Every relative ``Filename`` that gets rewritten also yields a restore
+        entry — ``(resource_name, "Filename", declared_value)`` — so
+        :meth:`run` can return the engine field to its script-declared state
+        once the run is over (see :meth:`_restore_output_paths`). Without that
+        rollback the rewritten absolute path would survive into the next
+        ``run()``, where the ``is_absolute()`` check below would mistake it for
+        a user-pinned destination and skip the redirect (issue #115). An
+        absolute ``Filename`` is left untouched and produces no restore entry.
+
         Returns:
-            ``(report_paths, ephemeris_paths, contact_paths)`` keyed by
-            resource name.
+            ``(report_paths, ephemeris_paths, contact_paths, restores)``. The
+            three path maps are keyed by resource name; ``restores`` is the
+            list of rewritten fields :meth:`run` must roll back afterwards.
         """
         moderator = self._gmat.Moderator.Instance()
         reports: dict[str, Path] = {}
         ephemerides: dict[str, Path] = {}
         contacts: dict[str, Path] = {}
+        restores: list[_OutputPathRestore] = []
         bucket = {
             "ReportFile": reports,
             "EphemerisFile": ephemerides,
@@ -648,12 +690,15 @@ class Mission:
                     resolved = workspace_path / path.name
                     with suppress(Exception):
                         obj.SetField("Filename", str(resolved))
+                        # Only recorded once SetField has actually landed —
+                        # a suppressed failure leaves nothing to restore.
+                        restores.append((name, "Filename", declared))
                 bucket[type_name][name] = resolved
-        return reports, ephemerides, contacts
+        return reports, ephemerides, contacts, restores
 
     def _discover_solver_outputs(
         self, workspace_path: Path
-    ) -> tuple[dict[str, Path], dict[str, int]]:
+    ) -> tuple[dict[str, Path], dict[str, int], list[_OutputPathRestore]]:
         """Enumerate ``Solver`` resources and pin each ``.data`` log to the workspace.
 
         Walks every ``Solver`` resource via ``Moderator.GetListOfObjects``. For
@@ -669,21 +714,27 @@ class Mission:
         Resilient to a missing ``SOLVER`` enum and to broken objects — skips
         quietly rather than aborting the run.
 
+        Each rewritten ``ReportFile`` yields a restore entry, exactly as in
+        :meth:`_rewrite_output_paths`, so :meth:`run` can roll the engine
+        field back to its declared value once the run is over (issue #115).
+
         Returns:
-            ``(paths, max_iterations)`` keyed by solver resource name. The
-            paths are *expected* locations; :meth:`run` rechecks existence
-            after the run, since an unexercised ``Solver`` writes nothing.
+            ``(paths, max_iterations, restores)`` keyed by solver resource
+            name (``restores`` is a flat list). The paths are *expected*
+            locations; :meth:`run` rechecks existence after the run, since an
+            unexercised ``Solver`` writes nothing.
         """
         type_id = getattr(self._gmat, _SOLVER_TYPE_ENUM_ATTR, None)
         if type_id is None:
-            return {}, {}
+            return {}, {}, []
         moderator = self._gmat.Moderator.Instance()
         try:
             names = list(moderator.GetListOfObjects(type_id))
         except Exception:
-            return {}, {}
+            return {}, {}, []
         paths: dict[str, Path] = {}
         max_iterations: dict[str, int] = {}
+        restores: list[_OutputPathRestore] = []
         for name in names:
             obj = self._gmat.GetObject(name)
             if obj is None:
@@ -702,10 +753,35 @@ class Mission:
                 resolved = workspace_path / path.name
                 with suppress(Exception):
                     obj.SetField("ReportFile", str(resolved))
+                    # Recorded only after SetField lands — see the matching
+                    # note in _rewrite_output_paths.
+                    restores.append((name, "ReportFile", declared))
             paths[name] = resolved
             with suppress(Exception):
                 max_iterations[name] = int(float(str(obj.GetField("MaximumIterations"))))
-        return paths, max_iterations
+        return paths, max_iterations, restores
+
+    def _restore_output_paths(self, restores: Iterable[_OutputPathRestore]) -> None:
+        """Roll back the engine path fields rewritten for one :meth:`run` call.
+
+        Each entry pairs a resource name with the field it owns and the value
+        that field held before :meth:`_rewrite_output_paths` /
+        :meth:`_discover_solver_outputs` pinned it into the run's workspace.
+        Restoring them leaves every subscriber and solver reflecting the
+        *loaded script* once the run is over, so a second :meth:`run` on the
+        same :class:`Mission` redirects from the originally declared
+        ``Filename`` rather than the previous run's workspace (issue #115).
+
+        The resource is re-fetched by name rather than carried as a live SWIG
+        proxy — gmatpy hands back a fresh proxy per call, so the name is the
+        stable handle. Each ``SetField`` is best-effort: a failure to roll
+        back must not mask the run's real outcome, so it is suppressed.
+        """
+        for name, field, original in restores:
+            with suppress(Exception):
+                obj = self._gmat.GetObject(name)
+                if obj is not None:
+                    obj.SetField(field, original)
 
     # --- internal helpers -----------------------------------------------------
 

@@ -62,9 +62,12 @@ def test_geotransfer_differential_corrector_converges(gmat_available: None, tmp_
     assert result.converged == {"DC": True}
 
     # The .data log was redirected into the run workspace, like every other
-    # output, and reading the field back yields that resolved path.
-    report_file = mission["DC.ReportFile"]
-    assert Path(report_file).parent == result.output_dir
+    # output — Results.solver_paths carries the resolved location.
+    assert result.solver_paths["DC"].parent == result.output_dir
+    # The rewrite is reverted once the run is over, so the engine field
+    # reflects the loaded script again and a second run() redirects afresh
+    # (issue #115).
+    assert mission["DC.ReportFile"] == "DifferentialCorrectorDC1.data"
 
 
 def test_geotransfer_max_iterations_one_ends_max_iter(gmat_available: None, tmp_path: Path) -> None:
