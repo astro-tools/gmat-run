@@ -1090,12 +1090,62 @@ class TestMissionRun:
         rf = _report_file("RF", "rel.txt")
         mission, _ = _run_mission(tmp_path, objects={"RF": rf})
         result = mission.run()
-        # Filename was rewritten on the underlying object…
+        # Filename was rewritten on the underlying object for the run…
         assert ("Filename", str(result.output_dir / "rel.txt")) in rf.set_calls
         # …and Results captures the same resolved path.
         assert result.reports._paths == {  # type: ignore[attr-defined]
             "RF": result.output_dir / "rel.txt"
         }
+        # …but the rewrite is reverted once the run is over, so the engine
+        # field reflects the loaded script again rather than the workspace.
+        assert mission["RF.Filename"] == "rel.txt"
+
+    def test_second_run_redirects_into_its_own_workspace(self, tmp_path: Path) -> None:
+        # Issue #115: a second run() on the same Mission must send its output
+        # into the second run's workspace, not the first's. Before the fix the
+        # first run left an absolute Filename on the subscriber, which the
+        # second run mistook for a user-pinned destination and never
+        # redirected — so run #2's report landed back in run #1's directory.
+        rf = _report_file("RF", "rel.txt")
+        mission, _ = _run_mission(tmp_path, objects={"RF": rf})
+
+        first = mission.run()
+        second = mission.run()
+
+        assert first.output_dir != second.output_dir
+        # Each run's report is bucketed under that run's own workspace.
+        assert first.reports._paths == {  # type: ignore[attr-defined]
+            "RF": first.output_dir / "rel.txt"
+        }
+        assert second.reports._paths == {  # type: ignore[attr-defined]
+            "RF": second.output_dir / "rel.txt"
+        }
+
+    def test_run_restores_filename_after_failed_run(self, tmp_path: Path) -> None:
+        # A run that fails its status check must still revert the Filename
+        # rewrite, or the next run() inherits the stale absolute path.
+        rf = _report_file("RF", "rel.txt")
+        mission, _ = _run_mission(tmp_path, objects={"RF": rf}, run_script_status=-5)
+
+        with pytest.raises(GmatRunError):
+            mission.run()
+
+        assert mission["RF.Filename"] == "rel.txt"
+
+    def test_run_restores_filename_when_collision_gate_raises(self, tmp_path: Path) -> None:
+        # The pre-run collision gate raises *after* the Filename rewrite, so
+        # the finally-restore is the only thing keeping a gated run from
+        # poisoning the next one.
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "rel.txt").write_text("stale artefact", encoding="utf-8")
+        rf = _report_file("RF", "rel.txt")
+        mission, _ = _run_mission(tmp_path, objects={"RF": rf})
+
+        with pytest.raises(GmatRunError):
+            mission.run(working_dir=workspace)
+
+        assert mission["RF.Filename"] == "rel.txt"
 
     def test_run_redirects_log(self, tmp_path: Path) -> None:
         mission, gmat = _run_mission(tmp_path)
