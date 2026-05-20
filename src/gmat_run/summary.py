@@ -17,7 +17,7 @@ values — ``mission["Sat.SMA"]`` already serves that need.
 from __future__ import annotations
 
 import html
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -102,6 +102,16 @@ _RESOURCE_ENUM_ATTRS: Final = (
 # ``GetGeneratingString`` for a Propagate can run hundreds of characters;
 # truncating keeps notebook reprs readable without dropping the leading text.
 _COMMAND_SUMMARY_WIDTH: Final = 100
+
+# Backstops for the command-tree walk. GMAT wires every ``BranchEnd``'s
+# ``GetNext()`` back to the owning branch command, so a naive walk cycles
+# forever. The walkers below break that cycle at the ``BranchEnd``; these caps
+# only matter if a branch command ever fails to report its ``BranchEnd`` (an
+# exotic plugin), in which case the summary degrades to a truncated outline
+# instead of a native stack overflow. Real missions nest a handful of levels
+# deep and no branch command exposes more than a couple of branches.
+_MAX_BRANCH_DEPTH: Final = 64
+_MAX_BRANCH_COUNT: Final = 64
 
 
 # --- dataclasses --------------------------------------------------------------
@@ -343,9 +353,9 @@ def _walk_commands(gmat: ModuleType) -> list[CommandOutline]:
 
     Returns an empty list when the gmat module exposes no ``Moderator`` or
     when ``GetFirstCommand`` raises (fakes that don't model the command
-    graph). ``BeginMissionSequence`` / ``NoOp`` is treated as the sentinel
-    head of the linked list and skipped — real GMAT prepends one even for an
-    empty mission.
+    graph). Real GMAT heads every sequence with a ``NoOp -> BeginMissionSequence``
+    sentinel prefix — every leading ``NoOp`` / ``BeginMissionSequence`` node is
+    skipped, since neither is a user command.
     """
     moderator_proxy = getattr(gmat, "Moderator", None)
     if moderator_proxy is None:
@@ -356,20 +366,13 @@ def _walk_commands(gmat: ModuleType) -> list[CommandOutline]:
         return []
     if first is None:
         return []
-    node = first
-    head_type = _safe_type_name(first)
-    if head_type in {"NoOp", "BeginMissionSequence"}:
-        try:
-            node = first.GetNext()
-        except Exception:
-            return []
+    node: Any = first
+    while node is not None and _safe_type_name(node) in {"NoOp", "BeginMissionSequence"}:
+        node = _safe_next(node)
     outlines: list[CommandOutline] = []
     while node is not None:
         outlines.append(_outline_command(node, depth=0))
-        try:
-            node = node.GetNext()
-        except Exception:
-            break
+        node = _safe_next(node)
     return outlines
 
 
@@ -385,16 +388,11 @@ def _outline_command(node: Any, *, depth: int) -> CommandOutline:
     children: tuple[CommandOutline, ...] = ()
     nested_count = 0
     if depth == 0 and _is_branch(node):
-        child = _safe_child_command(node)
         child_outlines: list[CommandOutline] = []
         nested = 0
-        while child is not None:
+        for child in _iter_branch_children(node):
             child_outlines.append(_outline_command(child, depth=1))
-            nested += _count_descendants(child)
-            try:
-                child = child.GetNext()
-            except Exception:
-                break
+            nested += _count_descendants(child, depth=1)
         children = tuple(child_outlines)
         nested_count = nested
     return CommandOutline(
@@ -405,20 +403,53 @@ def _outline_command(node: Any, *, depth: int) -> CommandOutline:
     )
 
 
-def _count_descendants(node: Any) -> int:
-    """Total nodes nested under ``node`` (depth >= 2 from the top-level)."""
-    if not _is_branch(node):
+def _count_descendants(node: Any, depth: int) -> int:
+    """Total commands nested under ``node`` (depth >= 2 from the top level).
+
+    Recurses through branch bodies via :func:`_iter_branch_children`, which
+    stops at each ``BranchEnd``. ``depth`` is bounded by
+    :data:`_MAX_BRANCH_DEPTH` purely as a backstop: if a branch command ever
+    fails to expose its ``BranchEnd`` the count is silently truncated rather
+    than overflowing the native stack (issue #114).
+    """
+    if depth >= _MAX_BRANCH_DEPTH or not _is_branch(node):
         return 0
     count = 0
-    child = _safe_child_command(node)
-    while child is not None:
+    for child in _iter_branch_children(node):
         count += 1
-        count += _count_descendants(child)
-        try:
-            child = child.GetNext()
-        except Exception:
-            break
+        count += _count_descendants(child, depth + 1)
     return count
+
+
+def _iter_branch_children(node: Any) -> Iterator[Any]:
+    """Yield the body commands of every branch of a branch command.
+
+    GMAT terminates each branch with a ``BranchEnd`` marker (``EndTarget`` /
+    ``EndIf`` / ...) whose ``GetNext()`` points *back* at the owning branch
+    command. The walk therefore stops at the first ``BranchEnd`` — that node is
+    neither yielded nor followed — which keeps it inside the branch instead of
+    looping back and running off into the rest of the mission sequence
+    (issue #114).
+
+    Every branch is enumerated: ``GetChildCommand(0)``, ``GetChildCommand(1)``,
+    ... until the engine returns ``None``, so an ``If``/``Else`` contributes
+    both arms.
+
+    There is deliberately no ``id()``-based cycle guard. gmatpy hands out a
+    fresh SWIG proxy per call, so proxy identity tracks neither the underlying
+    C++ command (false negatives) nor — once a proxy is freed and CPython
+    recycles its address — distinct commands (false positives that silently
+    truncate a valid walk). The ``BranchEnd`` stop here and the depth cap in
+    :func:`_count_descendants` bound the walk without relying on identity;
+    following ``GetNext()`` alone always terminates at the end of the sequence.
+    """
+    for index in range(_MAX_BRANCH_COUNT):
+        child = _safe_child_command(node, index)
+        if child is None:
+            break
+        while child is not None and not _is_branch_end(child):
+            yield child
+            child = _safe_next(child)
 
 
 def _command_summary(node: Any) -> str:
@@ -447,15 +478,45 @@ def _is_branch(node: Any) -> bool:
         return False
 
 
-def _safe_child_command(node: Any) -> Any:
-    """``GetChildCommand()`` tolerant of nullary vs. indexed signatures."""
+def _is_branch_end(node: Any) -> bool:
+    """True if ``node`` is a branch terminator (``EndTarget`` / ``EndIf`` / …).
+
+    GMAT wires every ``BranchEnd``'s ``GetNext()`` back to the owning branch
+    command, so a child walk must stop at one rather than follow it — see
+    :func:`_iter_branch_children`.
+    """
     try:
-        return node.GetChildCommand()
+        return bool(node.IsOfType("BranchEnd"))
+    except Exception:
+        return False
+
+
+def _safe_child_command(node: Any, index: int) -> Any:
+    """``GetChildCommand(index)`` tolerant of fakes and plugin commands.
+
+    Real gmatpy exposes ``GetChildCommand(Integer whichOne=0)`` and returns
+    ``None`` for an out-of-range index — that is how
+    :func:`_iter_branch_children` discovers a branch command's branch count.
+    The nullary fallback covers a hypothetical binding that omits the
+    parameter entirely.
+    """
+    try:
+        return node.GetChildCommand(index)
     except TypeError:
+        if index != 0:
+            return None
         try:
-            return node.GetChildCommand(0)
+            return node.GetChildCommand()
         except Exception:
             return None
+    except Exception:
+        return None
+
+
+def _safe_next(node: Any) -> Any:
+    """``GetNext()`` tolerant of fakes and plugin commands that raise."""
+    try:
+        return node.GetNext()
     except Exception:
         return None
 

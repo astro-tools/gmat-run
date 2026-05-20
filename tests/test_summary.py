@@ -14,9 +14,9 @@ from __future__ import annotations
 from itertools import pairwise
 from pathlib import Path
 from types import ModuleType
-from typing import Any
 
 from gmat_run.summary import (
+    _MAX_BRANCH_DEPTH,
     CommandOutline,
     MissionSummary,
     ResourceGroup,
@@ -57,7 +57,14 @@ class _FakeBase:
 
 
 class _FakeCommand:
-    """Stand-in for a GmatCommand node in the mission sequence."""
+    """Stand-in for a GmatCommand node in the mission sequence.
+
+    ``children`` holds one linked-list head per branch, so ``GetChildCommand``
+    is indexed: ``If``/``Else`` exposes two branches, every other branch
+    command exposes one. ``is_branch_end`` models a ``BranchEnd`` terminator
+    (``EndTarget`` / ``EndIf`` / ...); see :func:`_make_branch` for how GMAT
+    wires one back to its owning branch command.
+    """
 
     def __init__(
         self,
@@ -66,11 +73,13 @@ class _FakeCommand:
         generating: str = "",
         children: list[_FakeCommand] | None = None,
         is_branch: bool = False,
+        is_branch_end: bool = False,
     ) -> None:
         self._type = type_name
         self._generating = generating
         self._children = children or []
         self._is_branch = is_branch
+        self._is_branch_end = is_branch_end
         self._next: _FakeCommand | None = None
 
     def GetTypeName(self) -> str:
@@ -82,13 +91,17 @@ class _FakeCommand:
     def IsOfType(self, type_name: str) -> bool:
         if type_name == "BranchCommand":
             return self._is_branch
+        if type_name == "BranchEnd":
+            return self._is_branch_end
         return type_name == self._type
 
     def GetNext(self) -> _FakeCommand | None:
         return self._next
 
-    def GetChildCommand(self, *_args: Any) -> _FakeCommand | None:
-        return self._children[0] if self._children else None
+    def GetChildCommand(self, index: int = 0) -> _FakeCommand | None:
+        if 0 <= index < len(self._children):
+            return self._children[index]
+        return None
 
 
 def _link(*commands: _FakeCommand) -> _FakeCommand:
@@ -96,6 +109,45 @@ def _link(*commands: _FakeCommand) -> _FakeCommand:
     for prev, nxt in pairwise(commands):
         prev._next = nxt
     return commands[0]
+
+
+def _make_branch(
+    branch_cmd: _FakeCommand,
+    *body: _FakeCommand,
+    end_type: str = "EndTarget",
+) -> _FakeCommand:
+    """Wire ``body`` as ``branch_cmd``'s single branch, GMAT-style.
+
+    The branch body ends with a ``BranchEnd`` marker whose ``GetNext()`` loops
+    *back* to the owning branch command — the exact shape that sent the old
+    walker into unbounded recursion (issue #114). Returns ``branch_cmd``.
+    """
+    end = _FakeCommand(end_type, is_branch_end=True)
+    head = _link(*body, end)
+    end._next = branch_cmd
+    branch_cmd._children = [head]
+    return branch_cmd
+
+
+def _make_if_else(
+    if_cmd: _FakeCommand,
+    true_body: list[_FakeCommand],
+    else_body: list[_FakeCommand],
+) -> _FakeCommand:
+    """Wire ``if_cmd`` as a two-branch command (true arm + else arm).
+
+    Each arm is its own linked list terminated by an ``EndIf`` ``BranchEnd``
+    that loops back to ``if_cmd``, so the walker must enumerate both
+    ``GetChildCommand(0)`` and ``GetChildCommand(1)``. Returns ``if_cmd``.
+    """
+    branches: list[_FakeCommand] = []
+    for body in (true_body, else_body):
+        end = _FakeCommand("EndIf", is_branch_end=True)
+        head = _link(*body, end)
+        end._next = if_cmd
+        branches.append(head)
+    if_cmd._children = branches
+    return if_cmd
 
 
 def _make_gmat(
@@ -312,6 +364,19 @@ def test_command_walk_skips_no_op_head() -> None:
     assert [c.type_name for c in summary.commands] == ["Propagate"]
 
 
+def test_command_walk_skips_noop_and_begin_mission_sequence_prefix() -> None:
+    # Real GMAT heads every sequence with a two-node NoOp -> BeginMissionSequence
+    # sentinel prefix; both are dropped so the first user command leads.
+    head = _link(
+        _FakeCommand("NoOp"),
+        _FakeCommand("BeginMissionSequence"),
+        _FakeCommand("Propagate", generating="Propagate Prop(Sat);"),
+        _FakeCommand("Maneuver", generating="Maneuver TOI(Sat);"),
+    )
+    summary = build_mission_summary(_make_gmat(first_command=head), Path("seq.script"))
+    assert [c.type_name for c in summary.commands] == ["Propagate", "Maneuver"]
+
+
 def test_branch_command_renders_children_one_level_deep() -> None:
     vary1 = _FakeCommand("Vary", generating="Vary DC(TOI.Element1 = 0.5);")
     vary2 = _FakeCommand("Vary", generating="Vary DC(TOI.Element2 = 0.5);")
@@ -376,6 +441,72 @@ def test_branch_with_no_children_renders_empty() -> None:
     (cmd,) = summary.commands
     assert cmd.children == ()
     assert cmd.nested_count == 0
+
+
+def test_branch_walk_stops_at_branch_end_and_does_not_loop() -> None:
+    # Regression for issue #114: GMAT wires a Target's EndTarget so its
+    # GetNext() points back at the Target. The walk must stop at the EndTarget
+    # rather than follow it into unbounded recursion / off into the trailing
+    # mission sequence.
+    target = _FakeCommand("Target", generating="Target DC;", is_branch=True)
+    _make_branch(
+        target,
+        _FakeCommand("Vary", generating="Vary DC(TOI.Element1 = 0.5);"),
+        _FakeCommand("Maneuver", generating="Maneuver TOI(geoSat);"),
+        _FakeCommand("Propagate", generating="Propagate Prop(geoSat);"),
+        _FakeCommand("Achieve", generating="Achieve DC(geoSat.RMAG = 85000);"),
+    )
+    trailing = _FakeCommand("Propagate", generating="Propagate Prop(geoSat);")
+    target._next = trailing
+    summary = build_mission_summary(
+        _make_gmat(first_command=_link(_FakeCommand("BeginMissionSequence"), target)),
+        Path("geo.script"),
+    )
+    assert [c.type_name for c in summary.commands] == ["Target", "Propagate"]
+    outline = summary.commands[0]
+    # EndTarget is excluded; the walk never loops back or swallows `trailing`.
+    assert [c.type_name for c in outline.children] == [
+        "Vary",
+        "Maneuver",
+        "Propagate",
+        "Achieve",
+    ]
+    assert outline.nested_count == 0
+
+
+def test_branch_walk_enumerates_both_arms_of_if_else() -> None:
+    # If/Else exposes two branches; GetChildCommand(0) and GetChildCommand(1)
+    # must both be walked so the else arm is not dropped.
+    if_cmd = _FakeCommand("If", generating="If geoSat.SMA > 7000;", is_branch=True)
+    _make_if_else(
+        if_cmd,
+        true_body=[_FakeCommand("Propagate", generating="Propagate Prop(geoSat);")],
+        else_body=[_FakeCommand("Maneuver", generating="Maneuver TOI(geoSat);")],
+    )
+    summary = build_mission_summary(
+        _make_gmat(first_command=_link(_FakeCommand("BeginMissionSequence"), if_cmd)),
+        Path("ifelse.script"),
+    )
+    (cmd,) = summary.commands
+    assert cmd.type_name == "If"
+    assert [c.type_name for c in cmd.children] == ["Propagate", "Maneuver"]
+
+
+def test_count_descendants_saturates_at_max_branch_depth() -> None:
+    # Defence in depth: a pathologically deep nest is summarised with a
+    # truncated nested_count rather than overflowing the recursion backstop.
+    node = _FakeCommand("Propagate", generating="Propagate Prop(geoSat);")
+    for _ in range(_MAX_BRANCH_DEPTH + 20):
+        branch = _FakeCommand("For", generating="For I = 1:1;", is_branch=True)
+        node = _make_branch(branch, node, end_type="EndFor")
+    summary = build_mission_summary(
+        _make_gmat(first_command=_link(_FakeCommand("BeginMissionSequence"), node)),
+        Path("deep.script"),
+    )
+    (cmd,) = summary.commands
+    assert cmd.type_name == "For"
+    # The depth-1 child plus every level the backstop still recurses through.
+    assert cmd.nested_count == _MAX_BRANCH_DEPTH - 1
 
 
 def test_command_summary_truncated_to_width() -> None:
