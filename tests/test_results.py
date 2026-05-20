@@ -43,6 +43,7 @@ def test_output_dir_and_log_round_trip(tmp_path: Path) -> None:
 def test_default_mappings_are_empty(tmp_path: Path) -> None:
     result = _empty(tmp_path)
     assert len(result.reports) == 0
+    assert len(result.report_paths) == 0
     assert len(result.ephemerides) == 0
     assert len(result.ephemeris_paths) == 0
     assert len(result.contacts) == 0
@@ -57,9 +58,12 @@ def test_path_mappings_are_read_only(tmp_path: Path) -> None:
     result = Results(
         output_dir=tmp_path,
         log="",
+        report_paths={"R1": tmp_path / "R1.txt"},
         ephemeris_paths={"E1": tmp_path / "E1.eph"},
         contact_paths={"C1": tmp_path / "C1.txt"},
     )
+    with pytest.raises(TypeError):
+        result.report_paths["R2"] = tmp_path / "R2.txt"  # type: ignore[index]
     with pytest.raises(TypeError):
         result.ephemeris_paths["E2"] = tmp_path / "E2.eph"  # type: ignore[index]
     with pytest.raises(TypeError):
@@ -100,6 +104,18 @@ def test_reports_keyed_by_resource_name(tmp_path: Path) -> None:
     assert list(result.reports) == ["ReportFile1"]
     assert "ReportFile1" in result.reports
     assert len(result.reports) == 1
+
+
+def test_report_paths_round_trip(tmp_path: Path) -> None:
+    """``report_paths`` exposes the ReportFile location without parsing —
+    parity with ephemeris_paths / contact_paths / solver_paths."""
+    rpt = tmp_path / "never_written.txt"
+    result = Results(output_dir=tmp_path, log="", report_paths={"R1": rpt})
+    # Reachable even though the file does not exist: the path view never parses.
+    assert result.report_paths["R1"] == rpt
+    assert list(result.report_paths) == ["R1"]
+    assert "R1" in result.report_paths
+    assert len(result.report_paths) == 1
 
 
 def test_report_access_returns_dataframe(tmp_path: Path) -> None:
@@ -580,10 +596,9 @@ class TestPersist:
         result.persist(dest)
 
         assert result.output_dir == dest
+        assert result.report_paths["R1"] == dest / "r1.txt"
         assert result.ephemeris_paths["E1"] == dest / "e1.eph"
         assert result.contact_paths["C1"] == dest / "c1.txt"
-        # Reports' underlying path mapping is rebased too.
-        assert result.reports._paths["R1"] == dest / "r1.txt"  # type: ignore[attr-defined]
 
     def test_returns_self_for_chaining(self, tmp_path: Path) -> None:
         result, _ = _result_with_workspace(tmp_path)

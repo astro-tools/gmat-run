@@ -251,6 +251,7 @@ class Results:
     output_dir: Path
     log: str
     reports: Mapping[str, pd.DataFrame]
+    report_paths: Mapping[str, Path]
     ephemerides: Mapping[str, pd.DataFrame]
     ephemeris_paths: Mapping[str, Path]
     contacts: Mapping[str, pd.DataFrame]
@@ -279,11 +280,13 @@ class Results:
         self.log = log
         self._workspace = None
 
+        rep_paths: dict[str, Path] = dict(report_paths or {})
         eph_paths: dict[str, Path] = dict(ephemeris_paths or {})
         con_paths: dict[str, Path] = dict(contact_paths or {})
         slv_paths: dict[str, Path] = dict(solver_paths or {})
 
-        self.reports = _LazyReports(report_paths or {})
+        self.reports = _LazyReports(rep_paths)
+        self.report_paths = MappingProxyType(rep_paths)
         self.ephemeris_paths = MappingProxyType(eph_paths)
         self.contact_paths = MappingProxyType(con_paths)
         self.solver_paths = MappingProxyType(slv_paths)
@@ -369,7 +372,7 @@ class Results:
                 return p
             return dest / rel
 
-        new_reports = {n: _migrate(p) for n, p in self.reports._paths.items()}  # type: ignore[attr-defined]
+        new_reports = {n: _migrate(p) for n, p in self.report_paths.items()}
         new_eph = {n: _migrate(p) for n, p in self.ephemeris_paths.items()}
         new_con = {n: _migrate(p) for n, p in self.contact_paths.items()}
         new_slv = {n: _migrate(p) for n, p in self.solver_paths.items()}
@@ -378,6 +381,7 @@ class Results:
         self.ephemerides._rebase(new_eph)  # type: ignore[attr-defined]
         self.contacts._rebase(new_con)  # type: ignore[attr-defined]
         self.solver_runs._rebase(new_slv)  # type: ignore[attr-defined]
+        self.report_paths = MappingProxyType(new_reports)
         self.ephemeris_paths = MappingProxyType(new_eph)
         self.contact_paths = MappingProxyType(new_con)
         self.solver_paths = MappingProxyType(new_slv)

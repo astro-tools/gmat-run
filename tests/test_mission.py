@@ -1012,13 +1012,10 @@ class TestMissionRun:
         )
         result = mission.run()
         assert list(result.reports) == ["R1"]
-        # Relative filenames join the workspace dir.
-        assert result.reports.keys() == {"R1"}
-        # The path mapping itself is internal; reach through ephemeris_paths-style
-        # behaviour by verifying the workspace dir owns it.
-        # Use the parser-free path check on the lazy view's underlying mapping.
-        # (We expose the path via output_dir + basename.)
-        assert (result.output_dir / "r1.txt").parent == result.output_dir
+        # report_paths locates the ReportFile output without a parse; a relative
+        # Filename joins the run workspace.
+        assert list(result.report_paths) == ["R1"]
+        assert result.report_paths["R1"] == result.output_dir / "r1.txt"
 
     def test_run_buckets_outputs_by_subscriber_type(self, tmp_path: Path) -> None:
         mission, _ = _run_mission(
