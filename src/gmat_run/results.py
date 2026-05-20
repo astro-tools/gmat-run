@@ -448,7 +448,7 @@ class Results:
         Returns:
             ``dirpath`` as a resolved :class:`pathlib.Path`.
         """
-        dest_dir = Path(dirpath)
+        dest_dir = resolve_user_path(dirpath)
         dest_dir.mkdir(parents=True, exist_ok=True)
         for name in self.ephemerides:
             self.write_oem(name, dest_dir / f"{name}.oem", originator=originator)
