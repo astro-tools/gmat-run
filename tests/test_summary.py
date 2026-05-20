@@ -565,7 +565,7 @@ def test_text_repr_renders_resources_outputs_and_sequence() -> None:
     assert "Spacecraft (1): Sat" in text
     assert "ReportFile (1): RF" in text
     assert "Outputs" in text
-    assert "Mission sequence (1 commands)" in text
+    assert "Mission sequence (1 command)" in text
     assert "1. Propagate — Propagate Prop(Sat) {Sat.ElapsedDays = 1};" in text
 
 
@@ -599,7 +599,7 @@ def test_text_repr_marks_nested_count_in_branch() -> None:
         Path("nested.script"),
     )
     text = repr(summary)
-    assert "(1 nested commands)" in text
+    assert "(1 nested command)" in text
 
 
 # --- HTML repr ---------------------------------------------------------------
@@ -664,7 +664,7 @@ def test_html_repr_renders_branch_children_and_nested_count() -> None:
     # the descendants past depth 1.
     assert "<ul>" in html_str
     assert "Vary" in html_str
-    assert "(1 nested commands)" in html_str
+    assert "(1 nested command)" in html_str
 
 
 def test_html_repr_falls_back_to_type_only_when_summary_blank() -> None:
