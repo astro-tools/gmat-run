@@ -1,0 +1,45 @@
+********************************************************
+*** Performing Yukon Optimization (using "Yukon1")
+*** 2 variables; 0 equality constraints; 1 inequality constraints
+   Variables:  X1, X2
+   Inequality Constraints:  G
+********************************************************
+Yukon1 Iteration 0; Function Evaluation 1; Nominal Pass
+   Variables:  X1 = 0, X2 = 0
+   Cost Function Value: 8
+   Yukon1 State: Optimization ready to start.
+
+
+
+   Inequality Constraint Variances:
+      Delta G = -8
+
+Yukon1 Iteration 1; Function Evaluation 2; Nominal Pass
+   Variables:  X1 = 3.99999990464, X2 = 3.99999990464
+   Cost Function Value: 7.99999923709
+   Yukon1 State: Optimization is proceeding as expected.
+
+
+
+   Inequality Constraint Variances:
+      Delta G = -1.90728314919e-07
+
+Yukon1 Iteration 1; Function Evaluation 3; Nominal Pass
+   Variables:  X1 = 2, X2 = 2
+   Cost Function Value: 1.57772181044e-30
+   Yukon1 State: Optimization is proceeding as expected.
+
+
+
+   Inequality Constraint Variances:
+      Delta G = -4
+
+
+*** Optimization Completed in 1 iterations and 3 function evaluations
+*** The Optimizer Converged!
+Final Variable values:
+   X1 = 2
+   X2 = 2
+Yukon1 converged to within target accuracy.
+
+

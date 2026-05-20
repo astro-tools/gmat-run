@@ -1,0 +1,171 @@
+%
+%  Ex_GEOTransfer
+%
+%  Perform a transfer from a highly-elliptical inclined orbit to an equatorial
+%  geosynchronous orbit.
+%
+%  Trimmed copy of GMAT's stock Ex_GEOTransfer sample for the gmat-run
+%  integration suite: the OpenFramesInterface / OpenFramesView visualisation
+%  resources and the Spacecraft ModelFile reference are removed so the fixture
+%  runs headless without the OpenFrames plugin. The Spacecraft, ForceModel,
+%  Propagator, Burns, DifferentialCorrector, and mission sequence are
+%  unchanged, so the solver .data output is identical to the stock sample.
+%
+
+
+%----------------------------------------
+%---------- Spacecraft
+%----------------------------------------
+
+Create Spacecraft geoSat;
+
+geoSat.DateFormat                   = TAIModJulian;
+geoSat.Epoch                        = '21545';
+geoSat.CoordinateSystem             = EarthMJ2000Eq;
+geoSat.DisplayStateType             = Keplerian;
+geoSat.SMA                          = 6578.000000000003;
+geoSat.ECC                          = 0.001000000000001135;
+geoSat.INC                          = 28.49999999999999;
+geoSat.RAAN                         = 66.99999999999999;
+geoSat.AOP                          = 355.0000000000957;
+geoSat.TA                           = 249.9999999999781;
+geoSat.DryMass                      = 850;
+geoSat.Cd                           = 2.2;
+geoSat.Cr                           = 1.8;
+geoSat.DragArea                     = 15;
+geoSat.SRPArea                      = 1;
+geoSat.NAIFId                       = -123456789;
+geoSat.NAIFIdReferenceFrame         = -123456789;
+geoSat.Id                           = 'SatId';
+geoSat.Attitude                     = CoordinateSystemFixed;
+
+
+%----------------------------------------
+%---------- ForceModels
+%----------------------------------------
+
+Create ForceModel AllForces;
+
+AllForces.CentralBody                      = Earth;
+AllForces.PrimaryBodies                    = {Earth};
+AllForces.SRP                              = On;
+AllForces.RelativisticCorrection           = Off;
+AllForces.ErrorControl                     = RSSStep;
+AllForces.GravityField.Earth.Degree        = 20;
+AllForces.GravityField.Earth.Order         = 20;
+AllForces.GravityField.Earth.PotentialFile = 'JGM2.cof';
+AllForces.GravityField.Earth.TideModel     = 'None';
+AllForces.SRP.Flux                         = 1367;
+AllForces.SRP.Nominal_Sun                  = 149597870.691;
+AllForces.Drag.AtmosphereModel             = MSISE90;
+AllForces.Drag.F107                        = 150;
+AllForces.Drag.F107A                       = 150;
+AllForces.Drag.MagneticIndex               = 3;
+
+%----------------------------------------
+%---------- Propagators
+%----------------------------------------
+
+Create Propagator DefaultProp;
+
+DefaultProp.FM                       = AllForces;
+DefaultProp.Type                     = PrinceDormand78;
+DefaultProp.InitialStepSize          = 60;
+DefaultProp.Accuracy                 = 9.999999999999999e-012;
+DefaultProp.MinStep                  = 0.001;
+DefaultProp.MaxStep                  = 86400;
+DefaultProp.MaxStepAttempts          = 50;
+DefaultProp.StopIfAccuracyIsViolated = true;
+
+%----------------------------------------
+%---------- Burns
+%----------------------------------------
+
+Create ImpulsiveBurn TOI;
+
+TOI.CoordinateSystem   = Local;
+TOI.Origin             = Earth;
+TOI.Axes               = VNB;
+TOI.Element1           = 0;
+TOI.Element2           = 0;
+TOI.Element3           = 0;
+TOI.DecrementMass      = false;
+TOI.Isp                = 300;
+TOI.GravitationalAccel = 9.810000000000001;
+
+Create ImpulsiveBurn MCC;
+
+MCC.CoordinateSystem   = Local;
+MCC.Origin             = Earth;
+MCC.Axes               = VNB;
+MCC.Element1           = 0;
+MCC.Element2           = 0;
+MCC.Element3           = 0;
+MCC.DecrementMass      = false;
+MCC.Isp                = 300;
+MCC.GravitationalAccel = 9.810000000000001;
+
+Create ImpulsiveBurn MOI;
+
+MOI.CoordinateSystem   = Local;
+MOI.Origin             = Earth;
+MOI.Axes               = VNB;
+MOI.Element1           = 0;
+MOI.Element2           = 0;
+MOI.Element3           = 0;
+MOI.DecrementMass      = false;
+MOI.Isp                = 300;
+MOI.GravitationalAccel = 9.810000000000001;
+
+%----------------------------------------
+%---------- Arrays, Variables, Strings
+%----------------------------------------
+Create Variable I lowerBound upperBound;
+
+lowerBound = -119;
+upperBound = -117.5;
+
+%----------------------------------------
+%---------- Solvers
+%----------------------------------------
+
+Create DifferentialCorrector DC;
+
+DC.ShowProgress      = true;
+DC.ReportStyle       = Normal;
+DC.ReportFile        = 'DifferentialCorrectorDC1.data';
+DC.MaximumIterations = 25;
+DC.DerivativeMethod  = ForwardDifference;
+
+%----------------------------------------
+%---------- Mission Sequence
+%----------------------------------------
+BeginMissionSequence;
+Propagate 'Prop to Z Crossing' DefaultProp(geoSat) {geoSat.Z = 0, StopTolerance = 1e-005};
+
+Target 'Raise Apogee' DC {SolveMode  = Solve, ExitMode = DiscardAndContinue};
+   Vary 'Vary TOI.V' DC(TOI.Element1 = 1, {Perturbation = .0001, Lower = -9.999999e300, Upper = 9.999999e300, MaxStep = .5});
+   Maneuver 'Apply TOI' TOI(geoSat);
+   Propagate 'Prop To Apogee' DefaultProp(geoSat) {geoSat.Apoapsis};
+   Achieve 'Achieve RMAG' DC(geoSat.RMAG = 85000, {Tolerance = .1});
+EndTarget;  % For targeter DC
+
+Propagate 'Prop to Perigee' DefaultProp(geoSat) {geoSat.Earth.Periapsis};
+Propagate 'Prop to Plane Crossing' DefaultProp(geoSat) {geoSat.Z = 0, StopTolerance = 1e-5};
+
+Target 'Change Plane/Perigee' DC {SolveMode = Solve, ExitMode = DiscardAndContinue};
+   Vary 'Vary MCC.V' DC(MCC.Element1 = 0.1, {Perturbation = .0001, Lower = -9.999999e300, Upper = 9.999999e300, MaxStep = 0.5});
+   Vary 'Vary MCC.N' DC(MCC.Element2 = 0.1, {Perturbation = .0001, Lower = -9.999999e300, Upper = 9.999999e300, MaxStep = 0.5});
+   Maneuver 'Apply MCC' MCC(geoSat);
+   Propagate 'Prop to Perigee' DefaultProp(geoSat) {geoSat.Periapsis};
+   Achieve 'Apply INC' DC(geoSat.EarthMJ2000Eq.INC = 2, {Tolerance = .001});
+   Achieve 'Achieve RMAG' DC(geoSat.RMAG = 42195, {Tolerance = .001});
+EndTarget;  % For targeter DC
+
+Target 'Lower Apogee' DC {SolveMode  = Solve, ExitMode = DiscardAndContinue};
+   Vary 'Vary MOI.V' DC(MOI.Element1 = -0.1, {Perturbation = .0001, Lower = -9.999999e300, Upper = 9.999999e300, MaxStep = .1});
+   Maneuver 'Apply MOI' MOI(geoSat);
+   Achieve 'Achieve SMA' DC(geoSat.Earth.SMA = 42166.90, {Tolerance = .001});
+EndTarget;  % For targeter DC
+
+Propagate 'Prop 10 days' DefaultProp(geoSat) {geoSat.ElapsedDays = 10};

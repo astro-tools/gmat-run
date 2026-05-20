@@ -1,0 +1,172 @@
+********************************************************
+*** Targeter Text File
+*** 
+*** Using Differential Correction
+***
+*** 1 variables
+*** 1 goals
+***
+*** Variables:
+***    MOI.Element1
+***    
+*** Goals:
+***    geoSat.Earth.SMA
+***    
+*** SolverMode:  Solve
+***    
+********************************************************
+
+Iteration 1
+Running Nominal Pass
+Variables:
+   MOI.Element1 = -0.1
+   
+Goals and achieved values:
+   geoSat.Earth.SMA  Desired: 42166.9 Achieved: 57242.59356621061
+   Tolerance: 0.001
+   
+********************************************************
+
+
+Jacobian (Sensitivity matrix):
+   56793.49746656953
+
+
+Inverse Jacobian:
+   1.760764954806018e-05
+
+
+New scaled variable estimates:
+   MOI.Element1 = -0.2
+   
+Iteration 2
+Running Nominal Pass
+Variables:
+   MOI.Element1 = -0.2
+   
+Goals and achieved values:
+   geoSat.Earth.SMA  Desired: 42166.9 Achieved: 52144.52347823226
+   Tolerance: 0.001
+   
+********************************************************
+
+
+Jacobian (Sensitivity matrix):
+   45762.86826188152
+
+
+Inverse Jacobian:
+   2.185177717177654e-05
+
+
+New scaled variable estimates:
+   MOI.Element1 = -0.3
+   
+Iteration 3
+Running Nominal Pass
+Variables:
+   MOI.Element1 = -0.3
+   
+Goals and achieved values:
+   geoSat.Earth.SMA  Desired: 42166.9 Achieved: 47995.57479532532
+   Tolerance: 0.001
+   
+********************************************************
+
+
+Jacobian (Sensitivity matrix):
+   37613.9299791248
+
+
+Inverse Jacobian:
+   2.658589518710184e-05
+
+
+New scaled variable estimates:
+   MOI.Element1 = -0.4
+   
+Iteration 4
+Running Nominal Pass
+Variables:
+   MOI.Element1 = -0.4
+   
+Goals and achieved values:
+   geoSat.Earth.SMA  Desired: 42166.9 Achieved: 44557.59409769344
+   Tolerance: 0.001
+   
+********************************************************
+
+
+Jacobian (Sensitivity matrix):
+   31421.76631161419
+
+
+Inverse Jacobian:
+   3.182507278817033e-05
+
+
+New scaled variable estimates:
+   MOI.Element1 = -0.4760840136733427
+   
+Iteration 5
+Running Nominal Pass
+Variables:
+   MOI.Element1 = -0.4760840136733427
+   
+Goals and achieved values:
+   geoSat.Earth.SMA  Desired: 42166.9 Achieved: 42314.81222474064
+   Tolerance: 0.001
+   
+********************************************************
+
+
+Jacobian (Sensitivity matrix):
+   27654.43932279595
+
+
+Inverse Jacobian:
+   3.616055955166973e-05
+
+
+New scaled variable estimates:
+   MOI.Element1 = -0.4814326024844967
+   
+Iteration 6
+Running Nominal Pass
+Variables:
+   MOI.Element1 = -0.4814326024844967
+   
+Goals and achieved values:
+   geoSat.Earth.SMA  Desired: 42166.9 Achieved: 42167.55482707718
+   Tolerance: 0.001
+   
+********************************************************
+
+
+Jacobian (Sensitivity matrix):
+   27414.56580057275
+
+
+Inverse Jacobian:
+   3.64769592659063e-05
+
+
+New scaled variable estimates:
+   MOI.Element1 = -0.4814564885851172
+   
+Iteration 7
+Running Nominal Pass
+Variables:
+   MOI.Element1 = -0.4814564885851172
+   
+Goals and achieved values:
+   geoSat.Earth.SMA  Desired: 42166.9 Achieved: 42166.9000659372
+   Tolerance: 0.001
+   
+********************************************************
+
+
+********************************************************
+*** Targeting Completed in 7 iterations
+********************************************************
+

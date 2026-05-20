@@ -247,6 +247,7 @@ def format_results_html(
     report_names: Iterable[str],
     ephemeris_names: Iterable[str],
     contact_names: Iterable[str],
+    solver_run_names: Iterable[str],
 ) -> str:
     """Render a small HTML table for :meth:`gmat_run.results.Results._repr_html_`.
 
@@ -257,6 +258,7 @@ def format_results_html(
         ("reports", tuple(report_names)),
         ("ephemerides", tuple(ephemeris_names)),
         ("contacts", tuple(contact_names)),
+        ("solver_runs", tuple(solver_run_names)),
     ]
     parts: list[str] = ['<div class="gmat-run-results">']
     parts.append("<strong>Results</strong>")

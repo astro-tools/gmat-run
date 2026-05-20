@@ -43,6 +43,10 @@ you have a stand-alone GMAT output file you want to load without driving a
 
 ::: gmat_run.parsers.contact.parse
 
+## Solver log
+
+::: gmat_run.parsers.solver_log.parse
+
 ## Epoch promotion
 
 ::: gmat_run.parsers.epoch.promote_epochs

@@ -1,0 +1,34 @@
+********************************************************
+*** Targeter Text File
+*** 
+*** Using Differential Correction
+***
+*** 1 variables
+*** 1 goals
+***
+*** Variables:
+***    MOI.Element1
+***    
+*** Goals:
+***    geoSat.Earth.SMA
+***    
+*** SolverMode:  Solve
+***    
+********************************************************
+
+Iteration 1
+Running Nominal Pass
+Variables:
+   MOI.Element1 = -0.1
+   
+Goals and achieved values:
+   geoSat.Earth.SMA  Desired: 42166.9 Achieved: 8929.80725361425
+   Tolerance: 0.001
+   
+********************************************************
+
+
+********************************************************
+*** Targeting Completed in 1 iterations
+********************************************************
+

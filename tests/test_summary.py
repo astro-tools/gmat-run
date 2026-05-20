@@ -559,12 +559,15 @@ def test_format_results_html_lists_each_mapping() -> None:
         report_names=("RF1", "RF2"),
         ephemeris_names=("Eph1",),
         contact_names=(),
+        solver_run_names=("DC",),
     )
     assert "<code>reports</code>" in out
     assert "<code>ephemerides</code>" in out
     assert "<code>contacts</code>" in out
+    assert "<code>solver_runs</code>" in out
     assert "RF1, RF2" in out
     assert "Eph1" in out
+    assert "DC" in out
     assert "<em>none</em>" in out
 
 
@@ -573,6 +576,7 @@ def test_format_results_html_escapes_names() -> None:
         report_names=("<RF>",),
         ephemeris_names=(),
         contact_names=(),
+        solver_run_names=(),
     )
     assert "<RF>" not in out.replace("&lt;RF&gt;", "")
     assert "&lt;RF&gt;" in out
@@ -583,8 +587,9 @@ def test_format_results_html_when_all_mappings_empty() -> None:
         report_names=(),
         ephemeris_names=(),
         contact_names=(),
+        solver_run_names=(),
     )
-    assert out.count("<em>none</em>") == 3
+    assert out.count("<em>none</em>") == 4
 
 
 # --- dataclass shape sanity --------------------------------------------------

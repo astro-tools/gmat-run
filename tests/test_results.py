@@ -47,6 +47,9 @@ def test_default_mappings_are_empty(tmp_path: Path) -> None:
     assert len(result.ephemeris_paths) == 0
     assert len(result.contacts) == 0
     assert len(result.contact_paths) == 0
+    assert len(result.solver_runs) == 0
+    assert len(result.solver_paths) == 0
+    assert result.converged == {}
 
 
 def test_path_mappings_are_read_only(tmp_path: Path) -> None:
@@ -375,10 +378,139 @@ def test_contacts_unknown_key_raises_keyerror(tmp_path: Path) -> None:
         _ = result.contacts["nope"]
 
 
+# --- solver_runs (lazy) ------------------------------------------------------
+
+
+_SOLVER_DC_CONVERGED = """\
+********************************************************
+*** Targeter Text File
+*** Using Differential Correction
+*** 1 variables
+*** 1 goals
+*** SolverMode:  Solve
+********************************************************
+
+Iteration 1
+Running Nominal Pass
+Variables:
+   Burn.V = 0.5
+
+Goals and achieved values:
+   Sat.SMA  Desired: 7000 Achieved: 6999.9995
+   Tolerance: 0.001
+
+********************************************************
+*** Targeting Completed in 1 iterations
+********************************************************
+"""
+
+# Same file with the achieved value far from the goal — does not converge.
+_SOLVER_DC_DIVERGED = _SOLVER_DC_CONVERGED.replace("6999.9995", "5000.0")
+
+
+def _write_solver(path: Path, content: str = _SOLVER_DC_CONVERGED) -> Path:
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def test_solver_paths_round_trip(tmp_path: Path) -> None:
+    data = tmp_path / "DC.data"
+    result = Results(output_dir=tmp_path, log="", solver_paths={"DC": data})
+    assert result.solver_paths["DC"] == data
+    assert list(result.solver_runs) == ["DC"]
+    assert "DC" in result.solver_runs
+    assert len(result.solver_runs) == 1
+
+
+def test_solver_run_value_access_returns_dataframe(tmp_path: Path) -> None:
+    """``.solver_runs[k]`` lazily parses the ``.data`` file into a typed frame."""
+    data = _write_solver(tmp_path / "DC.data")
+    result = Results(output_dir=tmp_path, log="", solver_paths={"DC": data})
+    df = result.solver_runs["DC"]
+    assert isinstance(df, pd.DataFrame)
+    assert "iteration" in df.columns
+    assert "Burn.V" in df.columns
+    assert df.attrs["solver_type"] == "DifferentialCorrector"
+
+
+def test_solver_run_construction_does_not_read_files(tmp_path: Path) -> None:
+    """Pointing at a non-existent path must not raise — the parser is lazy."""
+    result = Results(output_dir=tmp_path, log="", solver_paths={"DC": tmp_path / "never.data"})
+    assert "DC" in result.solver_runs
+    assert list(result.solver_runs) == ["DC"]
+    assert len(result.solver_runs) == 1
+
+
+def test_solver_run_lazy_parse_caches(tmp_path: Path) -> None:
+    """Once parsed, the DataFrame is independent of the source file."""
+    data = _write_solver(tmp_path / "DC.data")
+    result = Results(output_dir=tmp_path, log="", solver_paths={"DC": data})
+    df = result.solver_runs["DC"]
+    data.unlink()
+    assert result.solver_runs["DC"] is df
+
+
+def test_solver_runs_unknown_key_raises_keyerror(tmp_path: Path) -> None:
+    result = _empty(tmp_path)
+    with pytest.raises(KeyError):
+        _ = result.solver_runs["nope"]
+
+
+def test_solver_paths_are_read_only(tmp_path: Path) -> None:
+    result = Results(output_dir=tmp_path, log="", solver_paths={"DC": tmp_path / "DC.data"})
+    with pytest.raises(TypeError):
+        result.solver_paths["DC2"] = tmp_path / "DC2.data"  # type: ignore[index]
+
+
+def test_solver_paths_defensively_copied(tmp_path: Path) -> None:
+    paths: dict[str, Path] = {"DC": tmp_path / "DC.data"}
+    result = Results(output_dir=tmp_path, log="", solver_paths=paths)
+    paths["DC2"] = tmp_path / "DC2.data"
+    assert list(result.solver_runs) == ["DC"]
+
+
+def test_converged_reflects_each_solver(tmp_path: Path) -> None:
+    ok = _write_solver(tmp_path / "DC.data", _SOLVER_DC_CONVERGED)
+    bad = _write_solver(tmp_path / "DC2.data", _SOLVER_DC_DIVERGED)
+    result = Results(output_dir=tmp_path, log="", solver_paths={"DC": ok, "DC2": bad})
+    assert result.converged == {"DC": True, "DC2": False}
+
+
+def test_solver_max_iterations_threaded_to_parser(tmp_path: Path) -> None:
+    """``solver_max_iterations`` reaches the parser — it distinguishes max_iter."""
+    data = _write_solver(tmp_path / "DC.data", _SOLVER_DC_DIVERGED)
+    capped = Results(
+        output_dir=tmp_path,
+        log="",
+        solver_paths={"DC": data},
+        solver_max_iterations={"DC": 1},
+    )
+    assert capped.solver_runs["DC"]["status"].iloc[-1] == "max_iter"
+    # Without the hint the same non-converged run cannot be told from a failure.
+    uncapped = Results(output_dir=tmp_path, log="", solver_paths={"DC": data})
+    assert uncapped.solver_runs["DC"]["status"].iloc[-1] == "failed"
+
+
+def test_solver_run_persist_rebases_paths(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _write_solver(workspace / "DC.data")
+    result = Results(output_dir=workspace, log="", solver_paths={"DC": workspace / "DC.data"})
+    dest = tmp_path / "persisted"
+
+    result.persist(dest)
+
+    assert result.solver_paths["DC"] == dest / "DC.data"
+    # Lazy parse now resolves against the persisted copy.
+    for f in workspace.iterdir():
+        f.unlink()
+    assert result.solver_runs["DC"].attrs["solver_type"] == "DifferentialCorrector"
+
+
 # --- mapping protocol --------------------------------------------------------
 
 
-@pytest.mark.parametrize("attr", ["reports", "ephemerides", "contacts"])
+@pytest.mark.parametrize("attr", ["reports", "ephemerides", "contacts", "solver_runs"])
 def test_mapping_attrs_are_mappings(tmp_path: Path, attr: str) -> None:
     """The three keyed views must satisfy ``Mapping`` at runtime, not just typing."""
     result = _empty(tmp_path)
@@ -646,7 +778,7 @@ def test_repr_format_shows_per_mapping_counts(tmp_path: Path) -> None:
         report_paths={"RF1": tmp_path / "rf1.txt", "RF2": tmp_path / "rf2.txt"},
         ephemeris_paths={"Eph1": tmp_path / "e1.oem"},
     )
-    assert repr(result) == "Results(reports=2, ephemerides=1, contacts=0)"
+    assert repr(result) == "Results(reports=2, ephemerides=1, contacts=0, solver_runs=0)"
 
 
 def test_repr_html_returns_table_listing_mapping_names(tmp_path: Path) -> None:
@@ -661,9 +793,10 @@ def test_repr_html_returns_table_listing_mapping_names(tmp_path: Path) -> None:
     assert "<code>reports</code>" in html_str
     assert "<code>ephemerides</code>" in html_str
     assert "<code>contacts</code>" in html_str
+    assert "<code>solver_runs</code>" in html_str
     assert "RF1" in html_str
     assert "Eph1" in html_str
-    assert "<em>none</em>" in html_str  # contacts is empty
+    assert "<em>none</em>" in html_str  # contacts and solver_runs are empty
 
 
 def test_repr_html_does_not_materialise_dataframes(tmp_path: Path) -> None:

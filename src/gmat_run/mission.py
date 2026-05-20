@@ -81,6 +81,11 @@ _AEM_ATTITUDE_VALUE: Final = "CCSDS-AEM"
 # instead of crashing.
 _SPACECRAFT_TYPE_ENUM_ATTR: Final = "SPACECRAFT"
 
+# Object-type-enum attribute used to enumerate Solver resources
+# (DifferentialCorrector, Yukon, …) when discovering per-solver ``.data``
+# iteration logs. Probed with the same defensive ``getattr`` as the others.
+_SOLVER_TYPE_ENUM_ATTR: Final = "SOLVER"
+
 
 class _LazyAttitudeInputs(Mapping[str, pd.DataFrame]):
     """Mapping view over CCSDS-AEM files referenced by Spacecraft resources.
@@ -351,6 +356,14 @@ class Mission:
         After :meth:`run` returns, reading ``mission["RF.Filename"]`` yields
         the resolved absolute path, which points at the file on disk.
 
+        **Solver logs.** Every ``Target`` / ``Optimize`` run writes a
+        per-``Solver`` ``.data`` iteration log. Its ``<Solver>.ReportFile``
+        field is rewritten into ``working_dir`` by the same mechanism, so the
+        log is surfaced through :attr:`Results.solver_runs` and shares the
+        workspace's lifetime. A ``Solver`` resource that no ``Target`` /
+        ``Optimize`` block exercises writes nothing and is simply absent from
+        the mapping.
+
         **Working directory** (when ``working_dir`` is set explicitly):
 
         * The directory is created if missing; if creation or any write into
@@ -415,7 +428,16 @@ class Mission:
         # subscriber, and overriding the Filename field is the only setting
         # the engine consults at write time.
         report_paths, ephemeris_paths, contact_paths = self._rewrite_output_paths(workspace_path)
-        all_paths = (*report_paths.values(), *ephemeris_paths.values(), *contact_paths.values())
+        # Solver .data logs are redirected the same way. The returned paths are
+        # *expected* locations — a Solver no Target/Optimize block exercises
+        # writes nothing, so existence is rechecked after the run below.
+        solver_expected, solver_max_iterations = self._discover_solver_outputs(workspace_path)
+        all_paths = (
+            *report_paths.values(),
+            *ephemeris_paths.values(),
+            *contact_paths.values(),
+            *solver_expected.values(),
+        )
         # Pre-run gate: pre-existing artefacts inside working_dir. Bounded to
         # *resolved* output paths that live under workspace_path — absolute
         # filenames pinned by the script outside the workspace are the user's
@@ -462,12 +484,19 @@ class Mission:
         if notice:
             log = notice + log
 
+        # Keep only the solver logs GMAT actually wrote — a declared-but-unused
+        # Solver leaves the no-solver mapping empty rather than raising.
+        solver_paths = {n: p for n, p in solver_expected.items() if p.exists()}
         results = Results(
             output_dir=workspace_path,
             log=log,
             report_paths=report_paths,
             ephemeris_paths=ephemeris_paths,
             contact_paths=contact_paths,
+            solver_paths=solver_paths,
+            solver_max_iterations={
+                n: solver_max_iterations[n] for n in solver_paths if n in solver_max_iterations
+            },
         )
         # See project memory `gmat-run Mission.run temp-dir lifetime ties to
         # Results`: the temp dir must outlive Mission.run so lazy report
@@ -621,6 +650,62 @@ class Mission:
                         obj.SetField("Filename", str(resolved))
                 bucket[type_name][name] = resolved
         return reports, ephemerides, contacts
+
+    def _discover_solver_outputs(
+        self, workspace_path: Path
+    ) -> tuple[dict[str, Path], dict[str, int]]:
+        """Enumerate ``Solver`` resources and pin each ``.data`` log to the workspace.
+
+        Walks every ``Solver`` resource via ``Moderator.GetListOfObjects``. For
+        each: derives the expected ``.data`` path — the ``ReportFile`` field
+        when set, otherwise the default ``<TypeName><SolverName>.data`` — and,
+        for a relative or unset value, rewrites ``ReportFile`` to an absolute
+        path inside ``workspace_path`` via ``SetField`` so GMAT writes where we
+        expect. An absolute ``ReportFile`` is the user's chosen destination and
+        is left alone, mirroring :meth:`_rewrite_output_paths`. The solver's
+        ``MaximumIterations`` is read alongside — the ``.data`` file does not
+        record it, but the parser needs it to classify a max-iteration stop.
+
+        Resilient to a missing ``SOLVER`` enum and to broken objects — skips
+        quietly rather than aborting the run.
+
+        Returns:
+            ``(paths, max_iterations)`` keyed by solver resource name. The
+            paths are *expected* locations; :meth:`run` rechecks existence
+            after the run, since an unexercised ``Solver`` writes nothing.
+        """
+        type_id = getattr(self._gmat, _SOLVER_TYPE_ENUM_ATTR, None)
+        if type_id is None:
+            return {}, {}
+        moderator = self._gmat.Moderator.Instance()
+        try:
+            names = list(moderator.GetListOfObjects(type_id))
+        except Exception:
+            return {}, {}
+        paths: dict[str, Path] = {}
+        max_iterations: dict[str, int] = {}
+        for name in names:
+            obj = self._gmat.GetObject(name)
+            if obj is None:
+                continue
+            try:
+                type_name = obj.GetTypeName()
+            except Exception:
+                continue
+            declared = ""
+            with suppress(Exception):
+                declared = str(obj.GetField("ReportFile"))
+            path = Path(declared) if declared else Path(f"{type_name}{name}.data")
+            if path.is_absolute():
+                resolved = path
+            else:
+                resolved = workspace_path / path.name
+                with suppress(Exception):
+                    obj.SetField("ReportFile", str(resolved))
+            paths[name] = resolved
+            with suppress(Exception):
+                max_iterations[name] = int(float(str(obj.GetField("MaximumIterations"))))
+        return paths, max_iterations
 
     # --- internal helpers -----------------------------------------------------
 

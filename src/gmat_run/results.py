@@ -1,10 +1,12 @@
 """In-memory aggregate of every output file GMAT wrote during a run.
 
-:class:`Results` is the return value of :meth:`Mission.run`. It exposes three
+:class:`Results` is the return value of :meth:`Mission.run`. It exposes four
 keyed views over those outputs — :attr:`Results.reports`,
-:attr:`Results.ephemerides`, and :attr:`Results.contacts` — each typed as a
-``Mapping[str, pandas.DataFrame]`` and keyed by the GMAT resource name as
-declared in the ``.script``.
+:attr:`Results.ephemerides`, :attr:`Results.contacts`, and
+:attr:`Results.solver_runs` — each typed as a ``Mapping[str, pandas.DataFrame]``
+and keyed by the GMAT resource name as declared in the ``.script``.
+:attr:`Results.converged` is a derived ``{solver: bool}`` shortcut over
+:attr:`Results.solver_runs`.
 
 Parsing is lazy. A ``ReportFile`` listed in :attr:`Results.reports` is read
 from disk and converted to a DataFrame only on first access, then cached for
@@ -33,6 +35,7 @@ from gmat_run._path_utils import resolve_user_path
 from gmat_run.parsers.contact import parse as _parse_contact
 from gmat_run.parsers.ephemeris import parse as _parse_oem_ephemeris
 from gmat_run.parsers.reportfile import parse as _parse_reportfile
+from gmat_run.parsers.solver_log import parse as _parse_solver_log
 from gmat_run.parsers.spk import is_spk_ephemeris as _is_spk_ephemeris
 from gmat_run.parsers.spk import parse as _parse_spk_ephemeris
 from gmat_run.parsers.stk_ephemeris import is_stk_ephemeris as _is_stk_ephemeris
@@ -170,12 +173,57 @@ class _LazyContacts(Mapping[str, pd.DataFrame]):
         self._paths = dict(paths)
 
 
+class _LazySolverRuns(Mapping[str, pd.DataFrame]):
+    """Mapping view over ``Solver`` iteration logs (the per-solver ``.data`` file).
+
+    Mirrors :class:`_LazyReports`: the parser runs once per key on first
+    ``__getitem__``, the DataFrame is cached, and membership/iteration do not
+    parse. Each key carries both its file path and the solver's
+    ``MaximumIterations`` — the ``.data`` file does not record the latter, but
+    :func:`gmat_run.parsers.solver_log.parse` needs it to tell a max-iteration
+    stop apart from a generic failure.
+
+    The DataFrame's columns depend on the solver type (``df.attrs["solver_type"]``):
+    a ``DifferentialCorrector`` carries the goal quartet, a ``Yukon`` carries
+    ``cost`` and per-constraint residuals. See
+    :func:`gmat_run.parsers.solver_log.parse` for the full schema.
+    """
+
+    def __init__(self, paths: Mapping[str, Path], max_iterations: Mapping[str, int]) -> None:
+        self._paths: dict[str, Path] = dict(paths)
+        self._max_iterations: dict[str, int] = dict(max_iterations)
+        self._cache: dict[str, pd.DataFrame] = {}
+
+    def __getitem__(self, key: str) -> pd.DataFrame:
+        if key in self._cache:
+            return self._cache[key]
+        if key not in self._paths:
+            raise KeyError(key)
+        frame = _parse_solver_log(self._paths[key], max_iterations=self._max_iterations.get(key))
+        self._cache[key] = frame
+        return frame
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._paths)
+
+    def __len__(self) -> int:
+        return len(self._paths)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._paths
+
+    def _rebase(self, paths: Mapping[str, Path]) -> None:
+        # Replace the path mapping in place; MaximumIterations is intrinsic to
+        # the run, not the file location, so it is left untouched.
+        self._paths = dict(paths)
+
+
 class Results:
     """Aggregate of every output file GMAT wrote during a single run.
 
     Construct one per call to :meth:`Mission.run`. Each path mapping is keyed
     by the resource name declared in the ``.script`` (``"ReportFile1"``,
-    ``"EphemerisFile1"``, ``"ContactLocator1"``, …). Path mappings are
+    ``"EphemerisFile1"``, ``"ContactLocator1"``, ``"DC"``, …). Path mappings are
     defensively copied and re-exposed as read-only views, so callers cannot
     mutate the run record after the fact.
 
@@ -191,6 +239,13 @@ class Results:
             resource. Defaults to empty.
         contact_paths: ``{name: path}`` for every ``ContactLocator``
             resource. Defaults to empty.
+        solver_paths: ``{name: path}`` for every ``Solver`` resource whose
+            ``.data`` iteration log was found on disk after the run. Defaults
+            to empty.
+        solver_max_iterations: ``{name: MaximumIterations}`` for those same
+            solvers. Passed through to the solver-log parser so a
+            max-iteration stop can be told apart from a generic failure.
+            Defaults to empty.
     """
 
     output_dir: Path
@@ -200,6 +255,8 @@ class Results:
     ephemeris_paths: Mapping[str, Path]
     contacts: Mapping[str, pd.DataFrame]
     contact_paths: Mapping[str, Path]
+    solver_runs: Mapping[str, pd.DataFrame]
+    solver_paths: Mapping[str, Path]
 
     # When the originating Mission.run() created an isolated temp dir, the
     # TemporaryDirectory handle is parked here so cleanup is tied to this
@@ -215,6 +272,8 @@ class Results:
         report_paths: Mapping[str, Path] | None = None,
         ephemeris_paths: Mapping[str, Path] | None = None,
         contact_paths: Mapping[str, Path] | None = None,
+        solver_paths: Mapping[str, Path] | None = None,
+        solver_max_iterations: Mapping[str, int] | None = None,
     ) -> None:
         self.output_dir = output_dir
         self.log = log
@@ -222,18 +281,22 @@ class Results:
 
         eph_paths: dict[str, Path] = dict(ephemeris_paths or {})
         con_paths: dict[str, Path] = dict(contact_paths or {})
+        slv_paths: dict[str, Path] = dict(solver_paths or {})
 
         self.reports = _LazyReports(report_paths or {})
         self.ephemeris_paths = MappingProxyType(eph_paths)
         self.contact_paths = MappingProxyType(con_paths)
+        self.solver_paths = MappingProxyType(slv_paths)
         self.ephemerides = _LazyEphemerides(eph_paths)
         self.contacts = _LazyContacts(con_paths)
+        self.solver_runs = _LazySolverRuns(slv_paths, solver_max_iterations or {})
 
     def __repr__(self) -> str:
         return (
             f"Results(reports={len(self.reports)}, "
             f"ephemerides={len(self.ephemerides)}, "
-            f"contacts={len(self.contacts)})"
+            f"contacts={len(self.contacts)}, "
+            f"solver_runs={len(self.solver_runs)})"
         )
 
     def _repr_html_(self) -> str:
@@ -241,17 +304,34 @@ class Results:
             report_names=tuple(self.reports),
             ephemeris_names=tuple(self.ephemerides),
             contact_names=tuple(self.contacts),
+            solver_run_names=tuple(self.solver_runs),
         )
+
+    @property
+    def converged(self) -> dict[str, bool]:
+        """``{solver name: bool}`` — did each solver run reach its goal?
+
+        A convenience view over :attr:`solver_runs` for the common branching
+        case (``if not result.converged["DC"]: ...``). Same keys as
+        :attr:`solver_runs`; ``{}`` when the mission declared no solvers.
+
+        Reading this materialises every solver run (it inspects each
+        DataFrame's ``attrs["converged"]``), so the lazy-parse cost is paid on
+        first access — the same trade-off as iterating :attr:`solver_runs`
+        values directly.
+        """
+        return {name: bool(self.solver_runs[name].attrs["converged"]) for name in self.solver_runs}
 
     def persist(self, path: str | os.PathLike[str]) -> Results:
         """Copy every output artefact under :attr:`output_dir` into ``path``.
 
-        Mutates the :class:`Results` in place so future report/ephemeris/contact
-        access reads from the persisted location instead of the (potentially
-        soon-to-be-cleaned) workspace. The :class:`tempfile.TemporaryDirectory`
-        backing a default-workspace run is released as part of the call. Run
-        with an explicit ``working_dir``: that directory is left intact —
-        ``persist`` is a copy, never a move.
+        Mutates the :class:`Results` in place so future
+        report/ephemeris/contact/solver-run access reads from the persisted
+        location instead of the (potentially soon-to-be-cleaned) workspace.
+        The :class:`tempfile.TemporaryDirectory` backing a default-workspace
+        run is released as part of the call. Run with an explicit
+        ``working_dir``: that directory is left intact — ``persist`` is a copy,
+        never a move.
 
         Path mappings are rewritten so any path that lived under the old
         ``output_dir`` now points at the matching file under ``path``.
@@ -292,12 +372,15 @@ class Results:
         new_reports = {n: _migrate(p) for n, p in self.reports._paths.items()}  # type: ignore[attr-defined]
         new_eph = {n: _migrate(p) for n, p in self.ephemeris_paths.items()}
         new_con = {n: _migrate(p) for n, p in self.contact_paths.items()}
+        new_slv = {n: _migrate(p) for n, p in self.solver_paths.items()}
 
         self.reports._rebase(new_reports)  # type: ignore[attr-defined]
         self.ephemerides._rebase(new_eph)  # type: ignore[attr-defined]
         self.contacts._rebase(new_con)  # type: ignore[attr-defined]
+        self.solver_runs._rebase(new_slv)  # type: ignore[attr-defined]
         self.ephemeris_paths = MappingProxyType(new_eph)
         self.contact_paths = MappingProxyType(new_con)
+        self.solver_paths = MappingProxyType(new_slv)
 
         self.output_dir = dest
         if self._workspace is not None:
