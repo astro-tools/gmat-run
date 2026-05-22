@@ -148,3 +148,18 @@ jobs:
       - uses: actions/checkout@v4
       - run: pip install .
       - run: python tests/canonical_image_smoke.py
+
+  # Validate CITATION.cff against the Citation File Format v1.2.0 schema.
+  # cffconvert is installed standalone (not via uv sync) because it is a
+  # CI-only schema check, not part of the dev or runtime dependency graph.
+  citation:
+    name: citation file (cffconvert)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install cffconvert==2.0.0
+      - run: cffconvert --validate -i CITATION.cff
