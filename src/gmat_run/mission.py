@@ -325,11 +325,19 @@ class Mission:
         pid = self._resolve_field(obj, field, dotted, value=value)
         type_code = obj.GetParameterType(pid)
         coerced = self._coerce(type_code, value, dotted)
+        kind = self._type_map.get(type_code, "string")
         # No preemptive `IsParameterReadOnly` gate: it raises for calculated
         # parameters (e.g. Spacecraft.SMA) and false-positives for delegated
         # fields on PropSetup. Let the engine reject the write itself.
         try:
-            obj.SetField(field, coerced)
+            if kind == "rmatrix":
+                # gmatpy's SetField has no matrix overload (only RealArray /
+                # StringArray / scalars), so an RMATRIX field is written via
+                # SetMatrix with a gmat Rmatrix — symmetric with _read's
+                # GetMatrix. A nested list passed to SetField is rejected.
+                obj.SetMatrix(field, self._build_rmatrix(coerced))
+            else:
+                obj.SetField(field, coerced)
         except Exception as exc:
             raise GmatFieldError(
                 f"GMAT rejected write to '{dotted}': {exc}",
@@ -944,6 +952,21 @@ class Mission:
             dotted,
             value,
         )
+
+    def _build_rmatrix(self, rows: list[list[float]]) -> Any:
+        """Build a gmat ``Rmatrix`` from a coerced nested list of floats.
+
+        gmatpy's ``SetField`` has no matrix overload, so an RMATRIX field is
+        written through ``SetMatrix`` with a real ``Rmatrix``. ``_coerce`` has
+        already validated ``rows`` as a non-empty list of numeric rows.
+        """
+        n_rows = len(rows)
+        n_cols = len(rows[0])
+        matrix = self._gmat.Rmatrix(n_rows, n_cols)
+        for i, row in enumerate(rows):
+            for j, element in enumerate(row):
+                matrix.SetElement(i, j, element)
+        return matrix
 
 
 # --- module-level helpers -----------------------------------------------------

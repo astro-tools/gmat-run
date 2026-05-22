@@ -50,10 +50,15 @@ _TYPE_CODES = {
 
 
 class _FakeRmatrix:
-    """Minimal Rmatrix stand-in supporting the read path Mission uses."""
+    """Minimal Rmatrix stand-in for the read and write paths Mission uses."""
 
     def __init__(self, rows: list[list[float]]) -> None:
-        self._rows = rows
+        self._rows = [list(row) for row in rows]
+
+    @classmethod
+    def zeros(cls, n_rows: int, n_cols: int) -> _FakeRmatrix:
+        """``gmat.Rmatrix(rows, cols)`` — a zero matrix the write path fills."""
+        return cls([[0.0] * n_cols for _ in range(n_rows)])
 
     def GetNumRows(self) -> int:
         return len(self._rows)
@@ -63,6 +68,9 @@ class _FakeRmatrix:
 
     def GetElement(self, i: int, j: int) -> float:
         return self._rows[i][j]
+
+    def SetElement(self, i: int, j: int, value: float) -> None:
+        self._rows[i][j] = value
 
 
 class _FakeObject:
@@ -145,8 +153,28 @@ class _FakeObject:
         type_code, _, read_only = self._fields[name]
         if read_only:
             raise RuntimeError(f"field '{name}' is read-only")
+        if isinstance(value, (list, tuple)) and any(
+            isinstance(element, (list, tuple)) for element in value
+        ):
+            # Mirror gmatpy: SetField has only RealArray / StringArray / scalar
+            # overloads — a nested array cannot be routed and is rejected.
+            # RMATRIX writes must go through SetMatrix instead.
+            raise RuntimeError(f"SetField('{name}', ...): no overload for a nested array")
         self._fields[name] = (type_code, value, read_only)
         self.set_calls.append((name, value))
+
+    def SetMatrix(self, name: str, matrix: _FakeRmatrix) -> None:
+        # The RMATRIX write path: Mission builds a gmat Rmatrix and hands it
+        # here. Store it as a nested list so GetMatrix round-trips it.
+        type_code, _, read_only = self._fields[name]
+        if read_only:
+            raise RuntimeError(f"field '{name}' is read-only")
+        rows = [
+            [matrix.GetElement(i, j) for j in range(matrix.GetNumColumns())]
+            for i in range(matrix.GetNumRows())
+        ]
+        self._fields[name] = (type_code, rows, read_only)
+        self.set_calls.append((name, rows))
 
     def Initialize(self) -> None:
         self.init_calls += 1
@@ -294,6 +322,7 @@ def _make_fake_gmat(
     module._moderator = _FakeModerator()  # type: ignore[attr-defined]
     module.Moderator = _ModeratorProxy  # type: ignore[attr-defined]
     module.APIException = _FakeAPIException  # type: ignore[attr-defined]
+    module.Rmatrix = _FakeRmatrix.zeros  # type: ignore[attr-defined]
 
     module.GetObject = get_object  # type: ignore[attr-defined]
     module.LoadScript = load_script  # type: ignore[attr-defined]
