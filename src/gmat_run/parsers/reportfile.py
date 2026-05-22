@@ -20,6 +20,7 @@ the datetime-parsing layer (see issue #7).
 
 import os
 import re
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,9 @@ def parse(path: str | os.PathLike[str], *, convert_to: str | None = None) -> pd.
     Column names are taken verbatim from the header row (dots preserved, e.g.
     ``Sat.Earth.SMA``). Each column is coerced to ``int64`` or ``float64`` if
     every value parses as numeric; otherwise the column stays ``object``/``str``.
+    A header that repeats a column name (GMAT's ``Report`` command does not
+    de-duplicate) is still parsed — every column typed independently — and a
+    :class:`UserWarning` flags the repeat.
 
     Args:
         path: Path to the ``ReportFile`` on disk.
@@ -84,9 +88,14 @@ def parse(path: str | os.PathLike[str], *, convert_to: str | None = None) -> pd.
             )
         rows.append(tokens)
 
+    _warn_on_duplicate_columns(column_names)
     df = pd.DataFrame(rows, columns=column_names)
-    for column in df.columns:
-        df[column] = _coerce_numeric(df[column])
+    # Coerce each column positionally: addressing by df[name] would shred a
+    # report that repeats a column name (a Report command can list the same
+    # parameter twice) — df[<dup-name>] returns a DataFrame, not a Series.
+    # .array hands isetitem the column's ExtensionArray, its accepted input.
+    for index in range(len(column_names)):
+        df.isetitem(index, _coerce_numeric(df.iloc[:, index]).array)
     return promote_epochs(df, convert_to=convert_to)
 
 
@@ -114,3 +123,30 @@ def _coerce_numeric(series: "pd.Series[Any]") -> "pd.Series[Any]":
         return pd.to_numeric(series)
     except (ValueError, TypeError):
         return series
+
+
+def _warn_on_duplicate_columns(column_names: list[str]) -> None:
+    """Emit a ``UserWarning`` when the header repeats a column name.
+
+    GMAT's ``Report`` command writes a parameter once per mention, so a
+    repeated parameter yields duplicate header tokens (identical, redundant
+    columns) — almost always an unintended repeat. Parsing still proceeds and
+    every column is typed correctly, but the caller is told: a DataFrame with
+    repeated labels is awkward downstream (``df[name]`` returns a frame, and a
+    Parquet round-trip rejects it).
+    """
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for name in column_names:
+        if name in seen and name not in duplicates:
+            duplicates.append(name)
+        seen.add(name)
+    if duplicates:
+        listing = ", ".join(repr(name) for name in duplicates)
+        warnings.warn(
+            f"report header repeats column name(s): {listing}; the duplicate "
+            "columns are parsed but a DataFrame with repeated labels is "
+            "awkward to index",
+            UserWarning,
+            stacklevel=3,
+        )
