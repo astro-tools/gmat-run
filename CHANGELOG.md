@@ -5,6 +5,55 @@ All notable changes to gmat-run are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-05-22
+
+### Added
+
+- `CITATION.cff` — Citation File Format 1.2.0 metadata at the repository
+  root, so GitHub renders the "Cite this repository" sidebar and the
+  academic citation path has one canonical source. A `citation` CI job
+  validates the file with `cffconvert` on every PR (#130, #134).
+
+### Changed
+
+- Parser file-read failures are now typed. All six text parsers —
+  `reportfile`, `ephemeris`, `stk_ephemeris`, `aem_ephemeris`, `contact`,
+  and `solver_log` — route through a shared UTF-8 reader that wraps
+  `OSError` and `UnicodeDecodeError` as
+  [`GmatOutputParseError`][gmat_run.GmatOutputParseError]. A missing or
+  binary input — including a declared `ReportFile` or `EphemerisFile` that
+  GMAT never wrote — now surfaces the typed error on lazy `Results` access
+  instead of a raw `FileNotFoundError` or `UnicodeDecodeError` (#138, #146).
+
+### Fixed
+
+- `*ModJulian` epoch columns are now always `datetime64[ns]`. Under
+  pandas 3.x a ModJulian column of whole-day or integer-typed values
+  resolved to `datetime64[us]`, leaving the column dtype data-dependent and
+  in breach of the documented epoch-column contract (#136, #144).
+- The STK and AEM ephemeris format sniffers no longer leak
+  `UnicodeDecodeError` on a binary or non-UTF-8 file (for example a GMAT
+  Code-500 binary ephemeris). Such a file now sniffs as "not this format"
+  and format dispatch continues instead of raising (#137, #145).
+- Multi-segment OEM and AEM ephemeris files whose segments declare
+  conflicting `TIME_SYSTEM` values are now rejected with
+  `GmatOutputParseError`. Previously they parsed silently into a single
+  epoch column mixing time scales, which a later `convert_to=` then
+  mistranslated (#139, #147).
+- `ReportFile` parsing coerces columns positionally, so a report carrying
+  duplicate header column names — which GMAT's `Report` command can emit —
+  has every column typed and every epoch column promoted, instead of
+  leaving the repeated columns string-typed. A `UserWarning` names the
+  duplicate (#140, #148).
+- `RMATRIX`-typed field writes (for example `Sat.Covariance`) now go
+  through gmatpy's `SetMatrix`, which the engine accepts. They previously
+  used `SetField`, which has no matrix overload and rejected the nested
+  list (#141, #149).
+- [`Results.converged`][gmat_run.Results] no longer aborts when a single
+  solver's log is unparseable. An unreadable log is omitted from the
+  returned mapping and named in a `UserWarning`, rather than hiding the
+  convergence status of every other solver (#143, #151).
+
 ## [0.5.0] — 2026-05-20
 
 ### Added
@@ -207,6 +256,7 @@ Initial public release.
 - Release workflow: build, PyPI trusted publishing, and
   `gh release create --generate-notes` on `v*` tags (#31).
 
+[0.6.0]: https://github.com/astro-tools/gmat-run/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/astro-tools/gmat-run/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/astro-tools/gmat-run/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/astro-tools/gmat-run/compare/v0.2.0...v0.3.0
