@@ -14,7 +14,7 @@ from gmat_run.results import Results
 from gmat_run.runtime import bootstrap
 from gmat_run.summary import CommandOutline, MissionSummary, ResourceGroup
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
     "CommandOutline",

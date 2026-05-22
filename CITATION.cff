@@ -12,8 +12,8 @@ type: software
 authors:
   - given-names: Dimitrije
     family-names: Jankovic
-version: 0.5.0
-date-released: "2026-05-20"
+version: 0.6.0
+date-released: "2026-05-22"
 license: MIT
 repository-code: "https://github.com/astro-tools/gmat-run"
 url: "https://github.com/astro-tools/gmat-run"
