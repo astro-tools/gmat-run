@@ -10,9 +10,10 @@ Run GMAT mission scripts from Python and get results as pandas DataFrames.
 
 ## What this is
 
-A thin, Pythonic wrapper around NASA GMAT's own `gmatpy` runtime. You bring a working `.script`;
-gmat-run loads it, lets you override fields from Python, runs the mission headlessly, and returns
-`ReportFile` / ephemeris / `ContactLocator` output as pandas DataFrames.
+gmat-run drives NASA's General Mission Analysis Tool (GMAT) from Python. You bring a working
+`.script`; gmat-run discovers your GMAT install, loads the mission, lets you override fields from
+Python with type coercion, runs it headlessly, and parses GMAT's `ReportFile`, ephemeris,
+`ContactLocator`, and solver-log output into typed pandas DataFrames.
 
 ## What this is not
 
