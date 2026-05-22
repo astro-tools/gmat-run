@@ -72,6 +72,25 @@ def test_modjulian_column_parses_end_to_end(tmp_path: Path) -> None:
     assert df.attrs["epoch_scales"]["Sat.TAIModJulian"] == "TAI"
 
 
+def test_modjulian_whole_day_column_is_ns(tmp_path: Path) -> None:
+    """A whole-day-valued ModJulian column comes out datetime64[ns] (#136).
+
+    pandas resolves an all-whole-day column coarser than [ns] unless the
+    promoter pins it; reportfile.parse must still satisfy the [ns] contract.
+    The sibling test above happens to dodge this because its 21545.5 row
+    forces [ns] on its own.
+    """
+    content = (
+        "Sat.TAIModJulian          Sat.Earth.SMA\n"
+        "21545.0                   6578.136\n"
+        "21546.0                   6578.137\n"
+    )
+    df = parse(_write(tmp_path / "mjd_whole.report", content))
+    assert df["Sat.TAIModJulian"].dtype == np.dtype("datetime64[ns]")
+    assert df["Sat.TAIModJulian"].iloc[0] == pd.Timestamp("2000-01-01 12:00:00")
+    assert df["Sat.TAIModJulian"].iloc[1] == pd.Timestamp("2000-01-02 12:00:00")
+
+
 def test_float_column_is_float64(tmp_path: Path) -> None:
     df = parse(_write(tmp_path / "basic.report", _BASIC))
     assert df["Sat.Earth.SMA"].dtype == np.float64
