@@ -400,7 +400,8 @@ def is_stk_ephemeris(path: str | os.PathLike[str]) -> bool:
 
     Sniffs the file's first non-blank, non-comment line for an ``stk.v.X.Y``
     banner. Used by :mod:`gmat_run.results` to dispatch to the right parser
-    without relying on file extension.
+    without relying on file extension. An unreadable or non-UTF-8 file (e.g. a
+    binary ephemeris) returns ``False`` rather than raising.
     """
     try:
         with Path(path).open(encoding="utf-8-sig", newline=None) as fh:
@@ -409,6 +410,8 @@ def is_stk_ephemeris(path: str | os.PathLike[str]) -> bool:
                 if not line or line.startswith("#"):
                     continue
                 return bool(_VERSION_BANNER_RE.match(line))
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # OSError: unreadable / missing. UnicodeDecodeError: a binary file
+        # (e.g. a Code-500 ephemeris) — not STK text, so report no match.
         return False
     return False
