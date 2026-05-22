@@ -135,6 +135,36 @@ def test_modjulian_dtype_is_ns_regardless_of_value_shape(values: list[float]) ->
     assert df[col].dtype == np.dtype("datetime64[ns]")
 
 
+# --- duplicate column names --------------------------------------------------
+
+
+def test_duplicate_epoch_column_both_promoted() -> None:
+    """A frame repeating an epoch column name promotes every matching column,
+    not just the first (#140)."""
+    df = pd.DataFrame(
+        [["26 Nov 2026 12:00:00.000", "26 Nov 2026 12:00:00.000"]],
+        columns=["Sat.UTCGregorian", "Sat.UTCGregorian"],
+    )
+    promote_epochs(df)
+    assert list(df.dtypes) == [
+        np.dtype("datetime64[ns]"),
+        np.dtype("datetime64[ns]"),
+    ]
+
+
+def test_duplicate_epoch_column_both_converted() -> None:
+    """convert_to= converts every matching column when a name repeats (#140)."""
+    df = pd.DataFrame(
+        [["26 Nov 2026 12:00:00.000", "26 Nov 2026 12:00:00.000"]],
+        columns=["Sat.TAIGregorian", "Sat.TAIGregorian"],
+    )
+    promote_epochs(df, convert_to="UTC")
+    # Both columns shift from TAI to UTC (37 s in 2026); neither left in TAI.
+    expected = pd.Timestamp("2026-11-26 12:00:00") - pd.Timedelta(seconds=37)
+    assert df.iloc[:, 0].iloc[0] == expected
+    assert df.iloc[:, 1].iloc[0] == expected
+
+
 # --- non-epoch columns -------------------------------------------------------
 
 

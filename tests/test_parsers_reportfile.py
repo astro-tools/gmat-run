@@ -147,6 +147,25 @@ def test_duplicate_data_row_is_preserved(tmp_path: Path) -> None:
     assert df["Sat.UTCGregorian"].iloc[0] == df["Sat.UTCGregorian"].iloc[1]
 
 
+def test_duplicate_column_name_warns_and_types_each(tmp_path: Path) -> None:
+    """A header repeating a column name (GMAT's Report command does not
+    de-duplicate) parses — each repeated column typed independently — with a
+    UserWarning, never silently left as strings (#140)."""
+    content = (
+        "Sat.UTCGregorian          Sat.X                     Sat.X\n"
+        "26 Nov 2026 12:00:00.000  1.0                       2.0\n"
+        "26 Nov 2026 12:01:00.000  3.0                       4.0\n"
+    )
+    with pytest.warns(UserWarning, match="repeats column name"):
+        df = parse(_write(tmp_path / "dupcol.report", content))
+    assert list(df.columns) == ["Sat.UTCGregorian", "Sat.X", "Sat.X"]
+    # Both repeated columns are coerced to float64 — not left string-typed.
+    assert df.iloc[:, 1].dtype == np.float64
+    assert df.iloc[:, 2].dtype == np.float64
+    assert df.iloc[:, 1].tolist() == [1.0, 3.0]
+    assert df.iloc[:, 2].tolist() == [2.0, 4.0]
+
+
 # --- edge cases --------------------------------------------------------------
 
 

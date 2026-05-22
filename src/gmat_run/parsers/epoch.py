@@ -106,9 +106,13 @@ def promote_epochs(df: pd.DataFrame, *, convert_to: str | None = None) -> pd.Dat
             required, and ``astropy`` is not installed. The message points at
             the ``gmat-run[astropy]`` extra.
     """
-    for column in df.columns:
+    # Iterate positionally: a report can repeat a column name (a Report command
+    # writes a parameter once per mention), and df[<dup-name>] would return a
+    # DataFrame rather than the Series the converters expect.
+    for index, column in enumerate(df.columns):
         suffix = _suffix(str(column))
-        if pd.api.types.is_datetime64_any_dtype(df[column]):
+        series = df.iloc[:, index]
+        if pd.api.types.is_datetime64_any_dtype(series):
             # Already promoted (idempotence). Tag the name-derived scale only
             # when nothing recorded one yet — a caller that built the frame by
             # hand still gets consistent attrs — but never overwrite a scale an
@@ -120,10 +124,10 @@ def promote_epochs(df: pd.DataFrame, *, convert_to: str | None = None) -> pd.Dat
                 _tag_scale(df, column, scale)
             continue
         if suffix in _GREGORIAN_SUFFIXES:
-            df[column] = _convert_gregorian(df[column], column)
+            df.isetitem(index, _convert_gregorian(series, column).array)
             _tag_scale(df, column, _GREGORIAN_SUFFIXES[suffix])
         elif suffix in _MODJULIAN_SUFFIXES:
-            df[column] = _convert_modjulian(df[column], column)
+            df.isetitem(index, _convert_modjulian(series, column).array)
             _tag_scale(df, column, _MODJULIAN_SUFFIXES[suffix])
         elif _UNKNOWN_EPOCH_SUFFIX_RE.match(suffix):
             warnings.warn(
@@ -139,18 +143,28 @@ def promote_epochs(df: pd.DataFrame, *, convert_to: str | None = None) -> pd.Dat
 
 
 def _convert_all_to(df: pd.DataFrame, target: str) -> None:
-    """Convert every entry in ``df.attrs["epoch_scales"]`` to ``target`` in place.
+    """Convert every column in ``df.attrs["epoch_scales"]`` to ``target`` in place.
 
     Imports :mod:`gmat_run.time` lazily so the default ``promote_epochs`` path
-    stays astropy-free. ``convert_column`` validates ``target`` and each
-    source scale, and surfaces the ``[astropy]`` install hint when needed.
+    stays astropy-free. Iterates positionally rather than delegating to
+    ``time.convert_column`` so a frame that repeats a column name still
+    converts every matching column — ``df[<dup-name>]`` would yield a
+    DataFrame. ``convert`` validates ``target`` and each source scale and
+    surfaces the ``[astropy]`` install hint when needed.
     """
-    from gmat_run.time import convert_column
+    from gmat_run.time import convert
 
     scales: dict[str, str] = df.attrs.get("epoch_scales", {})
-    # Snapshot the keys: ``convert_column`` mutates this dict as it goes.
+    # Convert each column against the scale recorded for its name. Read the
+    # source scale fresh per column before any update — duplicate-named columns
+    # share one scales entry, so updating it mid-loop would make the second
+    # column convert from the already-applied target.
+    for index, column in enumerate(df.columns):
+        from_scale = scales.get(column)
+        if from_scale is not None:
+            df.isetitem(index, convert(df.iloc[:, index], from_scale, target).array)
     for column in list(scales):
-        convert_column(df, column, target)
+        scales[column] = target
 
 
 def _suffix(column: str) -> str:
