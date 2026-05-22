@@ -188,7 +188,13 @@ def _convert_modjulian(series: "pd.Series[float]", column: str) -> "pd.Series[pd
             _synthetic_path(column),
         )
     try:
-        return _GMAT_MJD_EPOCH + pd.to_timedelta(series, unit="D")
+        # The epoch Timestamp and the timedelta each resolve at a precision
+        # pandas picks per-value (whole-day columns land coarser than [ns]), so
+        # normalise to the [ns] precision the contract promises — matching
+        # _convert_gregorian. astype also raises OutOfBoundsDatetime for a value
+        # representable at a wider resolution but outside the [ns] range; the
+        # except below funnels that into a typed parse error.
+        return (_GMAT_MJD_EPOCH + pd.to_timedelta(series, unit="D")).astype("datetime64[ns]")
     except (ValueError, OverflowError, pd.errors.OutOfBoundsDatetime) as exc:
         raise GmatOutputParseError(
             f"column {column!r} has a ModJulian value outside the "

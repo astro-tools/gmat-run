@@ -113,6 +113,28 @@ def test_modjulian_overflow_raises() -> None:
     assert "Sat.TAIModJulian" in str(excinfo.value)
 
 
+@pytest.mark.parametrize(
+    "values",
+    [
+        pytest.param([21545.0, 21546.0], id="all-whole-day"),
+        pytest.param([21545, 21546], id="integer-typed"),
+        pytest.param([21545.0, 21545.5], id="fractional"),
+    ],
+)
+def test_modjulian_dtype_is_ns_regardless_of_value_shape(values: list[float]) -> None:
+    """ModJulian promotion pins datetime64[ns] for every value shape (#136).
+
+    pandas resolves a whole-day-only (or integer-typed) ModJulian column
+    coarser than [ns]; the promoter must still honour the documented [ns]
+    contract. A fractional value forces [ns] on its own, so the whole-day and
+    integer cases are the ones that actually guard the regression.
+    """
+    col = "Sat.TAIModJulian"
+    df = pd.DataFrame({col: values})
+    promote_epochs(df)
+    assert df[col].dtype == np.dtype("datetime64[ns]")
+
+
 # --- non-epoch columns -------------------------------------------------------
 
 
