@@ -147,6 +147,15 @@ def test_multi_segment_concatenates(tmp_path: Path) -> None:
     assert df["Epoch"].iloc[-1] == pd.Timestamp("2026-01-01 12:04:00")
 
 
+def test_multi_segment_mixed_time_system_raises(tmp_path: Path) -> None:
+    """Segments with different TIME_SYSTEM values cannot be concatenated — the
+    Epoch column would otherwise mix scales under one label (#139)."""
+    seg_2_tdb = _SEG_2_META.replace("TIME_SYSTEM          = UTC", "TIME_SYSTEM          = TDB")
+    mixed = _HEADER + _META_BASE + _DATA_BASE + seg_2_tdb + _SEG_2_DATA
+    with pytest.raises(GmatOutputParseError, match="different TIME_SYSTEM"):
+        parse(_write(tmp_path / "mixed.oem", mixed))
+
+
 def test_multi_segment_records_per_segment_metadata(tmp_path: Path) -> None:
     df = parse(_write(tmp_path / "multi.oem", _MULTI_SEGMENT))
     segments = df.attrs["segments"]
