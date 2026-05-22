@@ -1,0 +1,42 @@
+%  Inline mission used by docs/examples/05_time_scales.ipynb to demonstrate
+%  leap-second-correct time-scale conversion. Propagates a circular LEO
+%  across the 2017-01-01 00:00:00 UTC leap-second boundary and writes one
+%  ReportFile carrying epoch columns in four scales (UTC, TAI, TT, TDB) plus
+%  Sat.A1ModJulian, so the constant offsets and the leap-second jump are
+%  both visible in a single DataFrame. Avoids OpenFramesInterface / OrbitView
+%  so it parses headlessly through gmatpy.
+
+Create Spacecraft Sat
+Sat.DateFormat = UTCGregorian
+Sat.Epoch = '31 Dec 2016 23:55:00.000'
+Sat.CoordinateSystem = EarthMJ2000Eq
+Sat.DisplayStateType = Keplerian
+Sat.SMA = 7000
+Sat.ECC = 0.001
+Sat.INC = 28.5
+Sat.RAAN = 75
+Sat.AOP = 90
+Sat.TA = 0
+
+Create ForceModel FM
+FM.CentralBody = Earth
+FM.PointMasses = {Earth}
+FM.Drag = None
+FM.SRP = Off
+
+Create Propagator Prop
+Prop.FM = FM
+Prop.Type = PrinceDormand78
+Prop.InitialStepSize = 30
+Prop.Accuracy = 1e-9
+Prop.MinStep = 30
+Prop.MaxStep = 30
+
+Create ReportFile RF
+RF.Filename = 'leap_second_demo_report.txt'
+RF.Precision = 16
+RF.WriteHeaders = true
+RF.Add = {Sat.UTCGregorian, Sat.TAIGregorian, Sat.TTGregorian, Sat.TDBGregorian, Sat.A1ModJulian, Sat.X, Sat.Y, Sat.Z}
+
+BeginMissionSequence
+Propagate Prop(Sat) {Sat.ElapsedSecs = 600}
