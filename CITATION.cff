@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use gmat-run in academic work, please cite it using the metadata below."
+title: gmat-run
+abstract: >-
+  gmat-run is a Python library for running NASA General Mission Analysis
+  Tool (GMAT) mission scripts and harvesting their output as analysis-ready
+  data. It discovers a local GMAT install, loads a .script into GMAT's
+  object model, applies field overrides from Python, and runs the mission
+  headlessly. ReportFile, ephemeris, ContactLocator, and solver-log output
+  are parsed into typed pandas DataFrames.
+type: software
+authors:
+  - given-names: Dimitrije
+    family-names: Jankovic
+version: 0.5.0
+date-released: "2026-05-20"
+license: MIT
+repository-code: "https://github.com/astro-tools/gmat-run"
+url: "https://github.com/astro-tools/gmat-run"
+keywords:
+  - gmat
+  - astrodynamics
+  - orbital-mechanics
+  - mission-analysis
+  - space
