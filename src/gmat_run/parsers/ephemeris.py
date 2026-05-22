@@ -40,6 +40,7 @@ from typing import Any, Final
 import pandas as pd
 
 from gmat_run.errors import GmatOutputParseError
+from gmat_run.parsers._io import read_text_lines
 from gmat_run.parsers.epoch import promote_epochs
 
 __all__ = ["parse"]
@@ -131,8 +132,7 @@ def parse(path: str | os.PathLike[str], *, convert_to: str | None = None) -> pd.
             required, and ``astropy`` is not installed.
     """
     path = Path(path)
-    with path.open(encoding="utf-8-sig", newline=None) as fh:
-        lines = fh.read().splitlines()
+    lines = read_text_lines(path)
 
     if not any(line.strip() for line in lines):
         raise GmatOutputParseError("file is empty", path)

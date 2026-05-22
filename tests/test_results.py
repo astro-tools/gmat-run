@@ -12,6 +12,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from gmat_run.errors import GmatOutputParseError
 from gmat_run.results import Results
 
 # --- helpers -----------------------------------------------------------------
@@ -148,13 +149,16 @@ def test_construction_does_not_read_files(tmp_path: Path) -> None:
 
 
 def test_value_access_on_missing_file_raises(tmp_path: Path) -> None:
-    """First access is where the parser actually runs — and where I/O fails."""
+    """First access is where the parser runs — a declared ReportFile GMAT never
+    wrote surfaces a typed GmatOutputParseError there, not a raw
+    FileNotFoundError. Output paths are recorded for every declared resource,
+    whether or not the engine produced the file."""
     result = Results(
         output_dir=tmp_path,
         log="",
         report_paths={"R1": tmp_path / "never_written.txt"},
     )
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(GmatOutputParseError):
         _ = result.reports["R1"]
 
 

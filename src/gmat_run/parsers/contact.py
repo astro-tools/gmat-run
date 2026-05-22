@@ -42,6 +42,7 @@ from typing import Final
 import pandas as pd
 
 from gmat_run.errors import GmatOutputParseError
+from gmat_run.parsers._io import read_text_lines
 
 __all__ = ["parse"]
 
@@ -195,12 +196,7 @@ def parse(path: str | os.PathLike[str]) -> pd.DataFrame:
             does not parse.
     """
     path = Path(path)
-
-    # ``utf-8-sig`` strips an optional UTF-8 BOM; ``newline=None`` activates
-    # universal-newline translation so CRLF and LF files produce identical
-    # token streams.
-    with path.open(encoding="utf-8-sig", newline=None) as fh:
-        lines = fh.read().splitlines()
+    lines = read_text_lines(path)
 
     if not any(line.strip() for line in lines):
         raise GmatOutputParseError("file is empty", path)
