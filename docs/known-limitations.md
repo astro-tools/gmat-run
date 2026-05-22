@@ -117,16 +117,18 @@ GMAT actually emits; uncommon variants raise
 
 - **CCSDS-OEM ephemeris**: covariance blocks (`COVARIANCE_START` …
   `COVARIANCE_STOP`) are skipped; acceleration columns past the mandatory six
-  state components are rejected.
+  state components are rejected. A multi-segment file whose segments declare
+  conflicting `TIME_SYSTEM` values is rejected, since the concatenated epoch
+  column would mix time scales.
 - **STK-TimePosVel ephemeris**: the `EphemerisTimePosVelAcc` (with
   acceleration) and `EphemerisTimePos` (position-only) data-section variants
   are rejected.
 - **CCSDS-AEM attitude**: only `QUATERNION` and `EULER_ANGLE` segment types
   parse. Rate/derivative/spin variants
   (`QUATERNION/DERIVATIVE`, `QUATERNION/RATE`, `EULER_ANGLE/RATE`, `SPIN`,
-  `SPIN/NUTATION`) are rejected, and multi-segment files mixing different
-  `ATTITUDE_TYPE` values are rejected (the column shapes are not
-  concatenable).
+  `SPIN/NUTATION`) are rejected. Multi-segment files are rejected when their
+  segments mix different `ATTITUDE_TYPE` values (the column shapes are not
+  concatenable) or conflicting `TIME_SYSTEM` values.
 - **SPK ephemeris**: the parser assumes one spacecraft per file (which
   matches GMAT's writer behaviour). Multi-target SPKs are rejected.
 - **Code-500 binary ephemeris**: not implemented. No public tooling decodes
