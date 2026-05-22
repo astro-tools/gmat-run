@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import warnings
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from types import MappingProxyType
@@ -32,6 +33,7 @@ from types import MappingProxyType
 import pandas as pd
 
 from gmat_run._path_utils import resolve_user_path
+from gmat_run.errors import GmatOutputParseError
 from gmat_run.parsers.contact import parse as _parse_contact
 from gmat_run.parsers.ephemeris import parse as _parse_oem_ephemeris
 from gmat_run.parsers.reportfile import parse as _parse_reportfile
@@ -315,15 +317,35 @@ class Results:
         """``{solver name: bool}`` — did each solver run reach its goal?
 
         A convenience view over :attr:`solver_runs` for the common branching
-        case (``if not result.converged["DC"]: ...``). Same keys as
-        :attr:`solver_runs`; ``{}`` when the mission declared no solvers.
+        case (``if not result.converged["DC"]: ...``). ``{}`` when the mission
+        declared no solvers.
+
+        Keys are the solvers whose ``.data`` log parsed successfully. A solver
+        whose log cannot be parsed — an unsupported solver type, a malformed
+        file — is omitted with a :class:`UserWarning` rather than failing the
+        whole property, so one bad log does not hide every other solver's
+        status. Use ``name in result.converged`` to tell an omitted solver
+        apart from a converged/diverged one.
 
         Reading this materialises every solver run (it inspects each
         DataFrame's ``attrs["converged"]``), so the lazy-parse cost is paid on
         first access — the same trade-off as iterating :attr:`solver_runs`
         values directly.
         """
-        return {name: bool(self.solver_runs[name].attrs["converged"]) for name in self.solver_runs}
+        statuses: dict[str, bool] = {}
+        for name in self.solver_runs:
+            try:
+                df = self.solver_runs[name]
+            except GmatOutputParseError as exc:
+                warnings.warn(
+                    f"solver run {name!r} could not be parsed; omitting it from "
+                    f"Results.converged: {exc}",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                continue
+            statuses[name] = bool(df.attrs["converged"])
+        return statuses
 
     def persist(self, path: str | os.PathLike[str]) -> Results:
         """Copy every output artefact under :attr:`output_dir` into ``path``.

@@ -427,6 +427,16 @@ Goals and achieved values:
 # Same file with the achieved value far from the goal — does not converge.
 _SOLVER_DC_DIVERGED = _SOLVER_DC_CONVERGED.replace("6999.9995", "5000.0")
 
+# A solver-log header that is neither DifferentialCorrector nor Yukon — the
+# solver_log parser raises GmatOutputParseError on it (unsupported solver type).
+_SOLVER_UNRECOGNISED = """\
+********************************************************
+*** Performing SNOPT Optimization (using "Opt1")
+********************************************************
+
+Iteration 1
+"""
+
 
 def _write_solver(path: Path, content: str = _SOLVER_DC_CONVERGED) -> Path:
     path.write_text(content, encoding="utf-8")
@@ -494,6 +504,19 @@ def test_converged_reflects_each_solver(tmp_path: Path) -> None:
     bad = _write_solver(tmp_path / "DC2.data", _SOLVER_DC_DIVERGED)
     result = Results(output_dir=tmp_path, log="", solver_paths={"DC": ok, "DC2": bad})
     assert result.converged == {"DC": True, "DC2": False}
+
+
+def test_converged_omits_unparseable_solver_with_warning(tmp_path: Path) -> None:
+    """A solver whose .data log cannot be parsed (an unsupported solver type)
+    is omitted from converged with a UserWarning — one bad log must not fail
+    the whole property and hide every other solver's status (#143)."""
+    ok = _write_solver(tmp_path / "DC.data", _SOLVER_DC_CONVERGED)
+    bad = _write_solver(tmp_path / "Opt1.data", _SOLVER_UNRECOGNISED)
+    result = Results(output_dir=tmp_path, log="", solver_paths={"DC": ok, "Opt1": bad})
+    with pytest.warns(UserWarning, match="Opt1"):
+        converged = result.converged
+    # The parseable solver's status survives; the unparseable one is absent.
+    assert converged == {"DC": True}
 
 
 def test_solver_max_iterations_threaded_to_parser(tmp_path: Path) -> None:
