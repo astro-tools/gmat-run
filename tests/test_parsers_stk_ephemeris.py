@@ -418,6 +418,13 @@ def test_is_stk_ephemeris_false_for_empty_file(tmp_path: Path) -> None:
     assert is_stk_ephemeris(path) is False
 
 
+def test_is_stk_ephemeris_false_for_binary_file(tmp_path: Path) -> None:
+    """A binary file (e.g. a Code-500 ephemeris) sniffs False, not UnicodeDecodeError."""
+    path = tmp_path / "binary.eph"
+    path.write_bytes(bytes(range(256)) * 8)
+    assert is_stk_ephemeris(path) is False
+
+
 # --- convert_to -------------------------------------------------------------
 
 

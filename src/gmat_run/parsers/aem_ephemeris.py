@@ -425,7 +425,8 @@ def is_aem_ephemeris(path: str | os.PathLike[str]) -> bool:
 
     Sniffs the first non-blank, non-comment line for a ``CCSDS_AEM_VERS = …``
     header. Cheap enough to run on every candidate file when classifying a
-    directory's worth of attitude artefacts.
+    directory's worth of attitude artefacts. An unreadable or non-UTF-8 file
+    (e.g. a binary ephemeris) returns ``False`` rather than raising.
     """
     try:
         with Path(path).open(encoding="utf-8-sig", newline=None) as fh:
@@ -434,6 +435,8 @@ def is_aem_ephemeris(path: str | os.PathLike[str]) -> bool:
                 if not line or line.startswith(_COMMENT_PREFIX):
                     continue
                 return bool(_AEM_VERS_RE.match(line))
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # OSError: unreadable / missing. UnicodeDecodeError: a binary file
+        # (e.g. a Code-500 ephemeris) — not AEM text, so report no match.
         return False
     return False

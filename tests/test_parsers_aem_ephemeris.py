@@ -539,6 +539,13 @@ def test_is_aem_ephemeris_strips_bom(tmp_path: Path) -> None:
     assert is_aem_ephemeris(path) is True
 
 
+def test_is_aem_ephemeris_false_for_binary_file(tmp_path: Path) -> None:
+    """A binary file (e.g. a Code-500 ephemeris) sniffs False, not UnicodeDecodeError."""
+    path = tmp_path / "binary.eph"
+    path.write_bytes(bytes(range(256)) * 8)
+    assert is_aem_ephemeris(path) is False
+
+
 # --- convert_to -------------------------------------------------------------
 
 
