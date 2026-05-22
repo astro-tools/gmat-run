@@ -1,0 +1,64 @@
+********************************************************
+*** Performing Yukon Optimization (using "Yukon1")
+*** 2 variables; 0 equality constraints; 1 inequality constraints
+   Variables:  X1, X2
+   Inequality Constraints:  G
+********************************************************
+Yukon1 Iteration 0; Function Evaluation 1; Nominal Pass
+   Variables:  X1 = 0, X2 = 0
+   Cost Function Value: 1
+   Yukon1 State: Optimization ready to start.
+
+
+
+   Inequality Constraint Variances:
+      Delta G = -8
+
+Yukon1 Iteration 1; Function Evaluation 2; Nominal Pass
+   Variables:  X1 = 1.99999989903, X2 = -1.00008890058e-05
+   Cost Function Value: 1601.00767741
+   Yukon1 State: Optimization is proceeding as expected.
+
+
+
+   Inequality Constraint Variances:
+      Delta G = -6.00001010186
+
+Yukon1 Iteration 1; Function Evaluation 3; Nominal Pass
+   Variables:  X1 = 0.199999989903, X2 = -1.00008890058e-06
+   Cost Function Value: 0.800007984655
+   Yukon1 State: Optimization is proceeding as expected.
+
+
+
+   Inequality Constraint Variances:
+      Delta G = -7.80000101019
+
+Yukon1 Iteration 2; Function Evaluation 4; Nominal Pass
+   Variables:  X1 = 5.54110337593, X2 = 2.45889660219
+   Cost Function Value: 79798.2288067
+   Yukon1 State: Optimization is proceeding as expected.
+
+
+
+   Inequality Constraint Variances:
+      Delta G = -2.18736460056e-08
+
+Yukon1 Iteration 3; Function Evaluation 5; Nominal Pass
+   Variables:  X1 = 0.209665563906, X2 = 0.105307376277
+   Cost Function Value: 1.0009828889
+   Yukon1 State: Optimization is proceeding as expected.
+
+
+
+   Inequality Constraint Variances:
+      Delta G = -7.68502705982
+
+
+*** Optimization did not converge in 3 iterations
+Final Variable values:
+   X1 = 0.209665563906
+   X2 = 0.105307376277
+Yukon1 failed to converge: Maximum number of iterations exceeded.
+
+
