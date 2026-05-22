@@ -141,6 +141,17 @@ def parse(path: str | os.PathLike[str], *, convert_to: str | None = None) -> pd.
     if not segments:
         raise GmatOutputParseError("no META_START block found; not a CCSDS-OEM ephemeris?", path)
 
+    # Every segment must agree on TIME_SYSTEM: the data records concatenate
+    # into one Epoch column, and tagging it with a single scale is correct
+    # only when that scale is shared. Mismatched scales cannot be merged.
+    time_systems = {seg.meta.get("TIME_SYSTEM", "") for seg in segments}
+    if len(time_systems) != 1:
+        raise GmatOutputParseError(
+            f"segments declare different TIME_SYSTEM values {sorted(time_systems)}; "
+            "cannot concatenate epochs across incompatible time scales",
+            path,
+        )
+
     frames: list[pd.DataFrame] = []
     metas: list[dict[str, str]] = []
     for segment in segments:
@@ -150,9 +161,9 @@ def parse(path: str | os.PathLike[str], *, convert_to: str | None = None) -> pd.
 
     result = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
 
-    # Tag epoch scale per the epoch.py convention. Use the first segment's
-    # TIME_SYSTEM — _consensus already validates that all segments agree on
-    # any flat-attr key (and TIME_SYSTEM is one of those).
+    # Tag epoch scale per the epoch.py convention. Every segment shares the
+    # same TIME_SYSTEM (checked above), so the first segment's value is the
+    # scale for the whole concatenated Epoch column.
     time_scale = metas[0].get("TIME_SYSTEM", "")
     if time_scale:
         result.attrs["epoch_scales"] = {"Epoch": time_scale}

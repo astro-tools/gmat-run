@@ -189,6 +189,15 @@ def parse(path: str | os.PathLike[str], *, convert_to: str | None = None) -> pd.
             "cannot concatenate heterogeneous attitude data",
             path,
         )
+    # Segments must likewise agree on TIME_SYSTEM: the concatenated Epoch
+    # column is tagged with a single scale, correct only when it is shared.
+    time_systems = {seg.meta.get("TIME_SYSTEM", "") for seg in segments}
+    if len(time_systems) != 1:
+        raise GmatOutputParseError(
+            f"segments declare different TIME_SYSTEM values {sorted(time_systems)}; "
+            "cannot concatenate epochs across incompatible time scales",
+            path,
+        )
     (attitude_type,) = types
     columns = _resolve_columns(attitude_type, path)
 
