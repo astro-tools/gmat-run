@@ -180,6 +180,24 @@ def test_yukon_converged_fixture_attrs() -> None:
     assert df.attrs["source_path"].endswith("yukon_converged_R2026a.data")
 
 
+# --- Yukon: max-iter fixture -------------------------------------------------
+
+
+def test_yukon_maxiter_fixture_ends_max_iter() -> None:
+    df = parse(_FIXTURES / "yukon_maxiter_R2026a.data", max_iterations=3)
+    assert df["status"].iloc[-1] == "max_iter"
+    assert df.attrs["solver_type"] == "Yukon"
+    assert df.attrs["converged"] is False
+    assert df.attrs["n_iterations"] == 3
+
+
+def test_yukon_maxiter_without_max_iterations_falls_back_to_failed() -> None:
+    # Without the MaximumIterations hint a non-converged run cannot be told
+    # apart from a generic failure.
+    df = parse(_FIXTURES / "yukon_maxiter_R2026a.data")
+    assert df["status"].iloc[-1] == "failed"
+
+
 # --- minimal-template happy paths --------------------------------------------
 
 
